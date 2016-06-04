@@ -121,6 +121,65 @@ describe("SubmoduleConfigUtil", function () {
         });
     });
 
+    describe("parseSubmoduleConfig", function () {
+        const cases = {
+            "trivial": {
+                input: "",
+                expected: [],
+            },
+            "no subs": {
+                input: `\
+[core]
+        repositoryformatversion = 0
+        filemode = true
+        bare = false
+        logallrefupdates = true
+        ignorecase = true
+        precomposeunicode = true
+`,
+                expected: []
+            },
+            "one sub": {
+                input: `\
+[core]
+        repositoryformatversion = 0
+        filemode = true
+        bare = false
+        logallrefupdates = true
+        ignorecase = true
+        precomposeunicode = true
+[submodule "x/y"]
+        url = /Users/someone/trash/tt/foo
+`,
+                expected: ["x/y"],
+            },
+            "two": {
+                input: `\
+[core]
+        repositoryformatversion = 0
+        filemode = true
+        bare = false
+        logallrefupdates = true
+        ignorecase = true
+        precomposeunicode = true
+[submodule "x/y"]
+        url = /Users/someone/trash/tt/foo
+[submodule "foo"]
+        url = /Users/someone/trash/tt/foo
+`,
+                expected: ["x/y", "foo"],
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const result =
+                             SubmoduleConfigUtil.parseOpenSubmodules(c.input);
+                assert.deepEqual(result.sort(), c.expected.sort());
+            });
+        });
+    });
+
     describe("getSubmodulesFromCommit", function () {
         // We know that the actual parsing is done by `parseSubmoduleConfig`;
         // we just need to check that the parsing happens and that it works in
