@@ -31,8 +31,12 @@
 "use strict";
 
 const assert = require("chai").assert;
+const co     = require("co");
+const fs     = require("fs-promise");
+const path   = require("path");
 
 const SubmoduleConfigUtil = require("../../lib/util/submodule_config_util");
+const TestUtil            = require("../../lib/util/test_util");
 
 describe("SubmoduleConfigUtil", function () {
     describe("parseSubmoduleConfig", function () {
@@ -116,5 +120,83 @@ describe("SubmoduleConfigUtil", function () {
             });
         });
     });
+
+    describe("getSubmodulesFromCommit", function () {
+        // We know that the actual parsing is done by `parseSubmoduleConfig`;
+        // we just need to check that the parsing happens and that it works in
+        // the case where there is no `.gitmodules` file.
+
+        it("no gitmodules", co.wrap(function *() {
+            const repo = yield TestUtil.createSimpleRepository();
+            const headCommit = yield repo.getHeadCommit();
+            const result = yield SubmoduleConfigUtil.getSubmodulesFromCommit(
+                                                                   repo,
+                                                                   headCommit);
+            assert.deepEqual(result, {});
+        }));
+
+        it("with gitmodules", co.wrap(function *() {
+            const repo = yield TestUtil.createSimpleRepository();
+            const modulesPath = path.join(repo.workdir(),
+                                          SubmoduleConfigUtil.modulesFileName);
+
+            yield fs.writeFile(modulesPath, `\
+[submodule "x/y"]
+    path = x/y
+[submodule "x/y"]
+    url = /foo/bar/baz
+`
+                              );
+            const withCommit = yield TestUtil.makeCommit(
+                                        repo,
+                                        [SubmoduleConfigUtil.modulesFileName]);
+
+            const result = yield SubmoduleConfigUtil.getSubmodulesFromCommit(
+                                                                   repo,
+                                                                   withCommit);
+            assert.deepEqual(result, {
+                "x/y": "/foo/bar/baz",
+            });
+        }));
+    });
+
+    describe("getSubmodulesFromIndex", function () {
+        // We know that the actual parsing is done by `parseSubmoduleConfig`;
+        // we just need to check that the parsing happens and that it works in
+        // the case where there is no `.gitmodules` file.
+
+        it("no gitmodules", co.wrap(function *() {
+            const repo = yield TestUtil.createSimpleRepository();
+            const index = yield repo.index();
+            const result = yield SubmoduleConfigUtil.getSubmodulesFromIndex(
+                                                                        repo,
+                                                                        index);
+            assert.deepEqual(result, {});
+        }));
+
+        it("with gitmodules", co.wrap(function *() {
+            const repo = yield TestUtil.createSimpleRepository();
+            const modulesPath = path.join(repo.workdir(),
+                                          SubmoduleConfigUtil.modulesFileName);
+
+            yield fs.writeFile(modulesPath, `\
+[submodule "x/y"]
+    path = x/y
+[submodule "x/y"]
+    url = /foo/bar/baz
+`
+                              );
+            const index = yield repo.index();
+            index.addByPath(SubmoduleConfigUtil.modulesFileName);
+
+            const result = yield SubmoduleConfigUtil.getSubmodulesFromIndex(
+                                                                        repo,
+                                                                        index);
+            assert.deepEqual(result, {
+                "x/y": "/foo/bar/baz",
+            });
+        }));
+    });
+
 });
 
