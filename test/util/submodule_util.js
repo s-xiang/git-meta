@@ -72,6 +72,10 @@ describe("SubmoduleUtil", function () {
     });
 
     describe("getSubmoduleNamesForCommit", function () {
+        // This method is implemented entirely in terms of
+        // `getConfiguredSubmodulesForCommit`, so we'll just throw a couple of
+        // cases at it to see that 
+
         const cases = {
             "none": {
                 state: "S",
@@ -83,21 +87,6 @@ describe("SubmoduleUtil", function () {
                 commit: "2",
                 expected: ["foo"],
             },
-            "two": {
-                state: "S:C2-1 foo=S/a:1;C3-2 bar=S/b:2;H=3",
-                commit: "3",
-                expected: ["foo", "bar"],
-            },
-            "none from earlier commit": {
-                state: "S:C2-1 foo=S/a:1;C3-2 bar=S/b:2;H=3",
-                commit: "1",
-                expected: [],
-            },
-            "not from index": {
-                state: "S:I foo=S/a:1",
-                commit: "1",
-                expected: [],
-            }
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
