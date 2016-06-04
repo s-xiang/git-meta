@@ -288,10 +288,39 @@ describe("SubmoduleUtil", function () {
         }));
     });
 
+    describe("listOpenSubmodules", function () {
+        // We will always inspect the repo `x`.
+
+        const cases = {
+            "simple": {
+                input: "x=S",
+                expected: [],
+            },
+            "one open": {
+                input: "a=S|x=S:I q=Sa:1;Oq",
+                expected: ["q"],
+            },
+            "two open": {
+                input: "a=S|x=S:I q=Sa:1,s/x=Sa:1;Oq;Os/x",
+                expected: ["q", "s/x"],
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const written =
+                               yield RepoASTTestUtil.createMultiRepos(c.input);
+                const x = written.repos.x;
+                const result = yield SubmoduleUtil.listOpenSubmodules(x);
+                assert.deepEqual(result.sort(), c.expected.sort());
+            }));
+        });
+    });
+
     describe("getSubmoduleRepos", function () {
         // The functionality of this method is delegated to
-        // `getSubmoduleNames`, `isVisible`, and `getRepo`.  We just need to
-        // test basic funtionality:
+        // `getSubmoduleNames`, `listOpenSubmodules`, and `getRepo`.  We just
+        // need to test basic funtionality:
         // - it screens hidden submodules
         // - it returns visible submods and name map is good
         // - hidden ones are screened
