@@ -683,4 +683,30 @@ describe("Status", function () {
             }));
         });
     });
+
+    describe("getRepoStatus", function () {
+        // We will get the status of the repo named `x`.
+
+        const cases = {
+            "trivial": {
+                state: "x=S",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                }),
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const result = yield Status.getRepoStatus(w.repos.x);
+                assert.instanceOf(result, RepoStatus);
+                const mappedResult = remapRepoStatus(result,
+                                                     w.commitMap,
+                                                     w.urlMap);
+                assert.deepEqual(mappedResult, c.expected);
+            }));
+        });
+    });
 });
