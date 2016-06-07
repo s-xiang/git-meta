@@ -41,32 +41,32 @@ describe("Status", function () {
         // I don't want to try to test for the specific format, just that we
         // mention changed files.
 
-        const STAT = Status.FILESTATUS;
+        const STAT = RepoStatus.FILESTATUS;
 
         const cases = {
-            "trivial": { input: m(), empty: true, },
+            "trivial": { input: new RepoStatus(), empty: true, },
             "with current branch": {
                 input: new RepoStatus({ currenBranchName: "foo" }),
                 empty: true,
             },
             "with head": {
-                input: m({headCommit: "1"}),
+                input: new RepoStatus({headCommit: "1"}),
                 empty: true,
             },
             "with staged": {
-                input: m({
+                input: new RepoStatus({
                     staged: { "foo": STAT.ADDED },
                 }),
                 regex: /foo/,
             },
             "with workdir": {
-                input: m({
+                input: new RepoStatus({
                     workdir: { foobar: STAT.REMOVED },
                 }),
                 regex: /foobar/,
             },
             "with untracked": {
-                input: m({
+                input: new RepoStatus({
                     untracked: [ "uuuu"],
                 }),
                 regex: /uuuu/,

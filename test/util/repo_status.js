@@ -38,6 +38,7 @@ describe("RepoStatus", function () {
     describe("Submodule", function () {
         const FILESTATUS = RepoStatus.FILESTATUS;
         const Submodule = RepoStatus.Submodule;
+        const RELATION = Submodule.COMMIT_RELATION;
 
         function m(args) {
             const result = {
@@ -56,12 +57,14 @@ describe("RepoStatus", function () {
             "no changes": {
                 args: {
                     indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
                     indexUrl: "a",
                     commitSha: "1",
                     commitUrl: "a",
                 },
                 expected: m({
                     indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
                     indexUrl: "a",
                     commitSha: "1",
                     commitUrl: "a",
@@ -95,6 +98,7 @@ describe("RepoStatus", function () {
                 args: {
                     indexStatus: FILESTATUS.MODIFIED,
                     indexSha: "2",
+                    indexShaRelation: RELATION.AHEAD,
                     indexUrl: "2",
                     commitUrl: "a",
                     commitSha: "1",
@@ -102,6 +106,7 @@ describe("RepoStatus", function () {
                 expected: m({
                     indexStatus: FILESTATUS.MODIFIED,
                     indexSha: "2",
+                    indexShaRelation: RELATION.AHEAD,
                     indexUrl: "2",
                     commitUrl: "a",
                     commitSha: "1",
@@ -113,6 +118,7 @@ describe("RepoStatus", function () {
                         untracked: ["foo"],
                     }),
                     indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
                     indexUrl: "2",
                     commitUrl: "2",
                     commitSha: "2",
@@ -122,9 +128,62 @@ describe("RepoStatus", function () {
                         untracked: ["foo"],
                     }),
                     indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
                     indexUrl: "2",
                     commitUrl: "2",
                     commitSha: "2",
+                }),
+            },
+            "repo status with head commit": {
+                args: {
+                    repoStatus: new RepoStatus({
+                        untracked: ["foo"],
+                        headCommit: "2",
+                    }),
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "2",
+                    commitUrl: "2",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.SAME,
+                },
+                expected: m({
+                    repoStatus: new RepoStatus({
+                        untracked: ["foo"],
+                        headCommit: "2",
+                    }),
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "2",
+                    commitUrl: "2",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.SAME,
+                }),
+            },
+            "repo status with different head commit": {
+                args: {
+                    repoStatus: new RepoStatus({
+                        untracked: ["foo"],
+                        headCommit: "3",
+                    }),
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "2",
+                    commitUrl: "2",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.BEHIND,
+                },
+                expected: m({
+                    repoStatus: new RepoStatus({
+                        untracked: ["foo"],
+                        headCommit: "3",
+                    }),
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "2",
+                    commitUrl: "2",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.BEHIND,
                 }),
             },
         };
@@ -147,6 +206,7 @@ describe("RepoStatus", function () {
     });
 
     describe("RepoStatus", function () {
+        const RELATION = RepoStatus.Submodule.COMMIT_RELATION;
         function m(args) {
             let result = {
                 currentBranchName: null,
@@ -177,6 +237,7 @@ describe("RepoStatus", function () {
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
+                            indexShaRelation: RELATION.SAME,
                             indexUrl: "a",
                             commitSha: "1",
                             commitUrl: "a",
@@ -192,6 +253,7 @@ describe("RepoStatus", function () {
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
+                            indexShaRelation: RELATION.SAME,
                             indexUrl: "a",
                             commitSha: "1",
                             commitUrl: "a",
@@ -216,6 +278,7 @@ describe("RepoStatus", function () {
     });
 
     describe("isClean", function () {
+        const RELATION = RepoStatus.Submodule.COMMIT_RELATION;
         const cases = {
             "trivial": {
                 input: new RepoStatus(),
@@ -229,6 +292,7 @@ describe("RepoStatus", function () {
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
+                            indexShaRelation: RELATION.SAME,
                             indexUrl: "a",
                             commitSha: "1",
                             commitUrl: "a",
