@@ -86,4 +86,196 @@ describe("Status", function () {
             });
         });
     });
+
+    describe("printSubmoduleStatus", function () {
+        // I don't want to try to test for the specific format, just that we
+        // mention changes.
+
+        const Submodule = RepoStatus.Submodule;
+        const RELATION = Submodule.COMMIT_RELATION;
+        const STAT = RepoStatus.FILESTATUS;
+
+        const cases = {
+            "unchanged": { 
+                input: new Submodule({
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                }),
+                regex: null,
+            },
+            "removed": { 
+                input: new Submodule({
+                    indexStatus: STAT.REMOVED,
+                    commitSha: "1",
+                    commitUrl: "a",
+                }),
+                regex: /Removed/,
+            },
+            "added": {
+                input: new Submodule({
+                    indexStatus: STAT.ADDED,
+                    indexUrl: "xyz",
+                    indexSha: "1",
+                }),
+                regex: /Added.*xyz/,
+            },
+            "changed url": {
+                input: new Submodule({
+                    indexStatus: STAT.MODIFIED,
+                    indexUrl: "qrs",
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    commitUrl: "xyz",
+                    commitSha: "1",
+                }),
+                regex: /Staged change to URL.*qrs/,
+            },
+            "new commit staged": {
+                input: new Submodule({
+                    indexStatus: STAT.MODIFIED,
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.AHEAD,
+                    commitUrl: "x",
+                    commitSha: "1",
+                }),
+                regex: /New commit/,
+            },
+            "old commit staged": {
+                input: new Submodule({
+                    indexStatus: STAT.MODIFIED,
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.BEHIND,
+                    commitUrl: "x",
+                    commitSha: "1",
+                }),
+                regex: /Reset to old commit/,
+            },
+            "unrelated staged": {
+                input: new Submodule({
+                    indexStatus: STAT.MODIFIED,
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.UNRELATED,
+                    commitUrl: "x",
+                    commitSha: "1",
+                }),
+                regex: /Changed to unrelated commit/,
+            },
+            "new head commit": {
+                input: new Submodule({
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    commitUrl: "x",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.AHEAD,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+                regex: /New commit/
+            },
+            "new head commit in new submodule": {
+                input: new Submodule({
+                    indexStatus: STAT.ADDED,
+                    indexUrl: "x",
+                    indexSha: "2",
+                    workdirShaRelation: RELATION.AHEAD,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+                regex: /New commit/
+            },
+            "behind head commit": {
+                input: new Submodule({
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    commitUrl: "x",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.BEHIND,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+                regex: /Open repo has old commit/
+            },
+            "unrelated head commit": {
+                input: new Submodule({
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    commitUrl: "x",
+                    commitSha: "2",
+                    workdirShaRelation: RELATION.UNRELATED,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+                regex: /Open repo has unrelated commit/
+            },
+            "file statuses": {
+                // We forward this, just validate that it does so.
+                input: new Submodule({
+                    indexStatus: STAT.ADDED,
+                    indexSha: "1",
+                    indexUrl: "a",
+                    workdirShaRelation: RELATION.SAME,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                        staged: { foo: STAT.ADDED },
+                    })
+                }),
+                regex: /foo/,
+            },
+            "bad branch": {
+                input: new Submodule({
+                    indexStatus: STAT.ADDED,
+                    indexSha: "1",
+                    indexUrl: "a",
+                    workdirShaRelation: RELATION.SAME,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                        currentBranchName: "bar",
+                    })
+                }),
+                branch: "foo",
+                regex: /On wrong branch.*bar/,
+            },
+            "no branch": {
+                input: new Submodule({
+                    indexStatus: STAT.ADDED,
+                    indexSha: "1",
+                    indexUrl: "a",
+                    workdirShaRelation: RELATION.SAME,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    })
+                }),
+                branch: "foo",
+                regex: /not on a branch/,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const branch = c.branch || null;
+                const result = Status.printSubmoduleStatus(branch, c.input);
+                if (c.regex) {
+                    assert.notEqual(result, "");
+                    assert.match(result, c.regex);
+               }
+                else {
+                    assert.equal(result, "");
+                }
+            });
+        });
+    });
+
 });

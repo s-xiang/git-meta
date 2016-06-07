@@ -94,6 +94,24 @@ describe("RepoStatus", function () {
                     commitSha: "1",
                 }),
             },
+            "changeg url": {
+                args: {
+                    indexStatus: FILESTATUS.MODIFIED,
+                    indexSha: "2",
+                    indexUrl: "a",
+                    indexShaRelation: RELATION.SAME,
+                    commitSha: "2",
+                    commitUrl: "b",
+                },
+                expected: m({
+                    indexStatus: FILESTATUS.MODIFIED,
+                    indexSha: "2",
+                    indexUrl: "a",
+                    indexShaRelation: RELATION.SAME,
+                    commitSha: "2",
+                    commitUrl: "b",
+                }),
+            },
             "modified": {
                 args: {
                     indexStatus: FILESTATUS.MODIFIED,
