@@ -31,11 +31,237 @@
 "use strict";
 
 const assert  = require("chai").assert;
+const co      = require("co");
 
-const RepoStatus = require("../../lib/util/repo_status");
-const Status     = require("../../lib/util/status");
+const RepoASTTestUtil     = require("../../lib/util/repo_ast_test_util");
+const RepoStatus          = require("../../lib/util/repo_status");
+const Status              = require("../../lib/util/status");
+const SubmoduleUtil       = require("../../lib/util/submodule_util");
+const SubmoduleConfigUtil = require("../../lib/util/submodule_config_util");
+
+// test utilities
+
+/**
+ * Return a new `RepoStatus` object having the same value as the specified
+ * `status` but with all commit shas replaced by commits in the specified
+ * `comitMap` and all urls replaced by the values in the specified `urlMap`.
+ *
+ * @param {RepoStatus} status
+ * @param {Object}     commitMap
+ * @param {Object}     urlMap
+ * @return {RepoStatus}
+ */
+let remapRepoStatus;
+
+/**
+ * Return a new `RepoStatus.Submodule` object having the same value as the
+ * specified `sub` but with all commit shas replaced by commits in the
+ * specified `commitMap` and all urls replaced by the values in the specified
+ * `urlMap`.
+ *
+ * @param {RepoStatus.Submodule} sub
+ * @param {Object}               commitMap from sha to sha
+ * @param {Object}               urlMap    from url to url
+ * @return {RepoStatus.Submodule}
+ */
+function remapSubmodule(sub, commitMap, urlMap) {
+    assert.instanceOf(sub, RepoStatus.Submodule);
+    assert.isObject(commitMap);
+    assert.isObject(urlMap);
+
+    function mapSha(sha) {
+        return sha && (commitMap[sha] || sha);
+    }
+
+    function mapUrl(url) {
+        return url && (urlMap[url] || url);
+    }
+
+    return new RepoStatus.Submodule({
+        indexStatus: sub.indexStatus,
+        indexSha: mapSha(sub.indexSha),
+        indexShaRelation: sub.indexShaRelation,
+        indexUrl: mapUrl(sub.indexUrl),
+        commitSha: mapSha(sub.commitSha),
+        commitUrl: mapUrl(sub.commitUrl),
+        workdirShaRelation: sub.workdirShaRelation,
+        repoStatus: sub.repoStatus &&
+                            remapRepoStatus(sub.repoStatus, commitMap, urlMap),
+    });
+}
+
+remapRepoStatus = function (status, commitMap, urlMap) {
+    assert.instanceOf(status, RepoStatus);
+    assert.isObject(commitMap);
+    assert.isObject(urlMap);
+
+    function mapSha(sha) {
+        return sha && (commitMap[sha] || sha);
+    }
+
+    let submodules = {};
+    const baseSubmods = status.submodules;
+    Object.keys(baseSubmods).forEach(name => {
+        submodules[name] = remapSubmodule(baseSubmods[name],
+                                          commitMap,
+                                          urlMap);
+    });
+
+    return new RepoStatus({
+        currentBranchName: status.currentBranchName,
+        headCommit: mapSha(status.headCommit),
+        staged: status.staged,
+        submodules: submodules,
+        workdir: status.workdir,
+        untracked: status.untracked,
+    });
+};
 
 describe("Status", function () {
+
+    describe("test.remapSubmodule", function () {
+        const Submodule = RepoStatus.Submodule;
+        const RELATION  = Submodule.COMMIT_RELATION;
+        const FILESTATUS = RepoStatus.FILESTATUS;
+        const cases = {
+            "all": {
+                input: new Submodule({
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                }),
+                commitMap: { "1": "2" },
+                urlMap: { "a": "b" },
+                expected: new Submodule({
+                    indexSha: "2",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "b",
+                    commitSha: "2",
+                    commitUrl: "b",
+                }),
+            },
+            "some skipped": {
+                input: new Submodule({
+                    indexStatus: FILESTATUS.ADDED,
+                    indexSha: "1",
+                    indexUrl: "x",
+                }),
+                commitMap: { "1": "2" },
+                urlMap: { "x": "y" },
+                expected: new Submodule({
+                    indexStatus: FILESTATUS.ADDED,
+                    indexSha: "2",
+                    indexUrl: "y",
+                }),
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const result = remapSubmodule(c.input,
+                                              c.commitMap,
+                                              c.urlMap);
+                assert.deepEqual(result, c.expected);
+            });
+        });
+    });
+
+    describe("test.remapRepoStatus", function () {
+        const FILESTATUS = RepoStatus.FILESTATUS;
+        const Submodule = RepoStatus.Submodule;
+        const RELATION = Submodule.COMMIT_RELATION;
+        const cases = {
+            trivial: {
+                input: new RepoStatus(),
+                commitMap: {},
+                urlMap: {},
+                expected: new RepoStatus(),
+            },
+            "all fields but submodules": {
+                input: new RepoStatus({
+                    currentBranchName: "foo",
+                    headCommit: "1",
+                    staged: { x: RepoStatus.FILESTATUS.ADDED },
+                    workdir: { y: RepoStatus.FILESTATUS.ADDED },
+                    untracked: [ "baz"],
+                }),
+                commitMap: { "1": "3"},
+                urlMap: {},
+                expected: new RepoStatus({
+                    currentBranchName: "foo",
+                    headCommit: "3",
+                    staged: { x: RepoStatus.FILESTATUS.ADDED },
+                    workdir: { y: RepoStatus.FILESTATUS.ADDED },
+                    untracked: [ "baz"],
+                }),
+            },
+            "with a sub": {
+                input: new RepoStatus({
+                    submodules: {
+                        s: new Submodule({
+                            indexSha: "1",
+                            indexShaRelation: RELATION.SAME,
+                            indexUrl: "a",
+                            commitSha: "1",
+                            commitUrl: "a",
+                        }),
+                    },
+                }),
+                commitMap: { "1": "2" },
+                urlMap: { "a": "b" },
+                expected: new RepoStatus({
+                    submodules: {
+                        s: new Submodule({
+                            indexSha: "2",
+                            indexShaRelation: RELATION.SAME,
+                            indexUrl: "b",
+                            commitSha: "2",
+                            commitUrl: "b",
+                        }),
+                    },
+                }),
+            },
+            "with a sub having a repo": {
+                input: new RepoStatus({
+                    submodules: {
+                        s: new Submodule({
+                            indexSha: "1",
+                            indexUrl: "a",
+                            indexStatus: FILESTATUS.ADDED,
+                            workdirShaRelation: RELATION.SAME,
+                            repoStatus: new RepoStatus({
+                                headCommit: "1",
+                            }),
+                        }),
+                    },
+                }),
+                commitMap: { "1": "2" },
+                urlMap: { "a": "b" },
+                expected: new RepoStatus({
+                    submodules: {
+                        s: new Submodule({
+                            indexSha: "2",
+                            indexUrl: "b",
+                            workdirShaRelation: RELATION.SAME,
+                            indexStatus: FILESTATUS.ADDED,
+                            repoStatus: new RepoStatus({
+                                headCommit: "2",
+                            }),
+                        }),
+                    },
+                }),
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const result = remapRepoStatus(c.input, c.commitMap, c.urlMap);
+                assert.deepEqual(result, c.expected);
+            });
+        });
+    });
 
     describe("printFileStatuses", function () {
         // I don't want to try to test for the specific format, just that we
@@ -166,6 +392,17 @@ describe("Status", function () {
                 }),
                 regex: /Changed to unrelated commit/,
             },
+            "unknown staged": {
+                input: new Submodule({
+                    indexStatus: STAT.MODIFIED,
+                    indexUrl: "x",
+                    indexSha: "2",
+                    indexShaRelation: RELATION.UNKNOWN,
+                    commitUrl: "x",
+                    commitSha: "1",
+                }),
+                regex: /cannot verify relation/,
+            },
             "new head commit": {
                 input: new Submodule({
                     indexUrl: "x",
@@ -278,4 +515,172 @@ describe("Status", function () {
         });
     });
 
+    describe("getSubmoduleStatus", function () {
+        // We will use `x` for the repo name and `s` for the submodule name.
+
+        /**
+         * We're going to cheat here.  We know that `getSubmoduleStatus` will
+         * call this method to get repo status.  We just need to make sure that
+         * it does so, and that it correctly uses the `headCommit` field, which
+         * is all we need to load to do so.
+         */
+        const getRepoStatus = co.wrap(function *(repo) {
+            const head = yield repo.getHeadCommit();
+            return new RepoStatus({
+                headCommit: head.id().tostrS(),
+            });
+        });
+
+        const FILESTATUS = RepoStatus.FILESTATUS;
+        const Submodule = RepoStatus.Submodule;
+        const RELATION = Submodule.COMMIT_RELATION;
+
+        const cases = {
+            "unchanged": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2",
+                expected: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexShaRelation: RELATION.SAME,
+                }),
+            },
+            "added": {
+                state: "a=S|x=S:I s=Sa:1",
+                expected: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                })
+            },
+            "removed": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;I s",
+                expected: new Submodule({
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexStatus: FILESTATUS.REMOVED,
+                }),
+            },
+            "new commit": {
+                state: "a=S:C3-1;Bfoo=3|x=S:C2-1 s=Sa:1;I s=Sa:3;Bmaster=2",
+                expected: new Submodule({
+                    indexSha: "3",
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexStatus: FILESTATUS.MODIFIED,
+                    indexShaRelation: RELATION.UNKNOWN,
+                }),
+            },
+            "new commit -- known": {
+                state: "a=S:C3-1;Bfoo=3|x=S:C2-1 s=Sa:1;I s=Sa:3;Bmaster=2;Os",
+                expected: new Submodule({
+                    indexSha: "3",
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexStatus: FILESTATUS.MODIFIED,
+                    indexShaRelation: RELATION.AHEAD,
+                    workdirShaRelation: RELATION.SAME,
+                    repoStatus: new RepoStatus({
+                        headCommit: "3",
+                    }),
+                }),
+            },
+            "new url": {
+                state: "a=S|x=S:C2-1 s=Sa:1;I s=Sb:1;Bmaster=2",
+                expected: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "b",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexStatus: FILESTATUS.MODIFIED,
+                    indexShaRelation: RELATION.SAME,
+                }),
+            },
+            "unchanged open": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os",
+                expected: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    indexShaRelation: RELATION.SAME,
+                    workdirShaRelation: RELATION.SAME,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+            },
+            "new in open": {
+                state: "a=S:C2-1;Bb=2|x=S:I s=Sa:1;Os H=2",
+                expected: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                    workdirShaRelation: RELATION.AHEAD,
+                    repoStatus: new RepoStatus({
+                        headCommit: "2",
+                    }),
+                }),
+            },
+            "old in open": {
+                state: "a=S:C2-1;Bb=2|x=S:I s=Sa:2;Os H=1",
+                expected: new Submodule({
+                    indexSha: "2",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                    workdirShaRelation: RELATION.BEHIND,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+            },
+            "unrelated in open": {
+                state: "a=S:C2-1;C3-1;Bb=2;Bc=3|x=S:I s=Sa:2;Os H=3",
+                expected: new Submodule({
+                    indexSha: "2",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                    workdirShaRelation: RELATION.UNRELATED,
+                    repoStatus: new RepoStatus({
+                        headCommit: "3",
+                    }),
+                }),
+            }
+        };
+
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const repo = w.repos.x;
+                const index = yield repo.index();
+                const indexUrls =
+                 yield SubmoduleConfigUtil.getSubmodulesFromIndex(repo, index);
+                const commit = yield repo.getHeadCommit();
+                const commitUrls =
+                     yield SubmoduleConfigUtil.getSubmodulesFromCommit(repo,
+                                                                       commit);
+                const indexUrl = indexUrls.s || null;
+                const commitUrl = commitUrls.s || null;
+                const commitTree = yield commit.getTree();
+                const isVisible = yield SubmoduleUtil.isVisible(repo, "s");
+                const result = yield Status.getSubmoduleStatus("s",
+                                                               repo,
+                                                               indexUrl,
+                                                               commitUrl,
+                                                               index,
+                                                               commitTree,
+                                                               isVisible,
+                                                               getRepoStatus);
+                assert.instanceOf(result, RepoStatus.Submodule);
+                const mappedResult = remapSubmodule(result,
+                                                    w.commitMap,
+                                                    w.urlMap);
+                assert.deepEqual(mappedResult, c.expected);
+            }));
+        });
+    });
 });
