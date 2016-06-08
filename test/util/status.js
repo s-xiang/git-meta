@@ -113,7 +113,6 @@ remapRepoStatus = function (status, commitMap, urlMap) {
         staged: status.staged,
         submodules: submodules,
         workdir: status.workdir,
-        untracked: status.untracked,
     });
 };
 
@@ -185,7 +184,6 @@ describe("Status", function () {
                     headCommit: "1",
                     staged: { x: RepoStatus.FILESTATUS.ADDED },
                     workdir: { y: RepoStatus.FILESTATUS.ADDED },
-                    untracked: [ "baz"],
                 }),
                 commitMap: { "1": "3"},
                 urlMap: {},
@@ -194,7 +192,6 @@ describe("Status", function () {
                     headCommit: "3",
                     staged: { x: RepoStatus.FILESTATUS.ADDED },
                     workdir: { y: RepoStatus.FILESTATUS.ADDED },
-                    untracked: [ "baz"],
                 }),
             },
             "with a sub": {
@@ -293,7 +290,7 @@ describe("Status", function () {
             },
             "with untracked": {
                 input: new RepoStatus({
-                    untracked: [ "uuuu"],
+                    workdir: { uuuu: STAT.ADDED },
                 }),
                 regex: /uuuu/,
             },
