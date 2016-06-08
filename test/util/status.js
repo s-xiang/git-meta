@@ -684,6 +684,8 @@ describe("Status", function () {
     describe("getRepoStatus", function () {
         // We will get the status of the repo named `x`.
 
+        const FILESTATUS = RepoStatus.FILESTATUS;
+
         const cases = {
             "trivial": {
                 state: "x=S",
@@ -692,6 +694,103 @@ describe("Status", function () {
                     headCommit: "1",
                 }),
             },
+            "staged change": {
+                state: "x=S:I README.md=whoohoo",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { "README.md": FILESTATUS.MODIFIED },
+                }),
+            },
+            "staged addition": {
+                state: "x=S:I foo=bar",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { foo: FILESTATUS.ADDED },
+                }),
+            },
+            "staged additions": {
+                state: "x=S:I f=b,y=z",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: {
+                        f: FILESTATUS.ADDED,
+                        y: FILESTATUS.ADDED,
+                    },
+                }),
+            },
+            "staged deletion": {
+                state: "x=S:I README.md",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { "README.md": FILESTATUS.REMOVED },
+                })
+            },
+            "workdir file addition": {
+                state: "x=S:W x=y",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    workdir: { "x": FILESTATUS.ADDED },
+                }),
+            },
+            "workdir path addition": {
+                state: "x=S:W x/z=y",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    workdir: { "x/": FILESTATUS.ADDED },
+                }),
+            },
+            "workdir path modification": {
+                state: "x=S:W README.md=aaa",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    workdir: { "README.md": FILESTATUS.MODIFIED }
+                }),
+            },
+            "workdir path deletion": {
+                state: "x=S:W README.md",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    workdir: { "README.md": FILESTATUS.REMOVED }
+                }),
+            },
+            "staged addition, workdir deletion": {
+                state: "x=S:I x=y;W x",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { "x": FILESTATUS.ADDED },
+                    workdir: { "x": FILESTATUS.REMOVED },
+                }),
+            },
+            "staged deletion, workdir addition": {
+                state: "x=S:I README.md;W README.md=foo",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { "README.md": FILESTATUS.REMOVED },
+                    workdir: { "README.md": FILESTATUS.ADDED },
+                }),
+            },
+            "index and workdir mod": {
+                state: "x=S:I README.md=2;W README.md=foo",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    staged: { "README.md": FILESTATUS.MODIFIED },
+                    workdir: { "README.md": FILESTATUS.MODIFIED },
+                }),
+            },
+            // Submodules are tested earlier, but we need to make sure that
+            // they're all included, even if they have been removed in the
+            // index or added in the index.
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
