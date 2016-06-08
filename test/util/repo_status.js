@@ -133,7 +133,7 @@ describe("RepoStatus", function () {
             "repo status": {
                 args: {
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                     }),
                     indexSha: "2",
                     indexShaRelation: RELATION.SAME,
@@ -143,7 +143,7 @@ describe("RepoStatus", function () {
                 },
                 expected: m({
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                     }),
                     indexSha: "2",
                     indexShaRelation: RELATION.SAME,
@@ -155,7 +155,7 @@ describe("RepoStatus", function () {
             "repo status with head commit": {
                 args: {
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                         headCommit: "2",
                     }),
                     indexSha: "2",
@@ -167,7 +167,7 @@ describe("RepoStatus", function () {
                 },
                 expected: m({
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                         headCommit: "2",
                     }),
                     indexSha: "2",
@@ -181,7 +181,7 @@ describe("RepoStatus", function () {
             "repo status with different head commit": {
                 args: {
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                         headCommit: "3",
                     }),
                     indexSha: "2",
@@ -193,7 +193,7 @@ describe("RepoStatus", function () {
                 },
                 expected: m({
                     repoStatus: new RepoStatus({
-                        untracked: ["foo"],
+                        workdir: { foo: FILESTATUS.ADDED },
                         headCommit: "3",
                     }),
                     indexSha: "2",
@@ -231,7 +231,6 @@ describe("RepoStatus", function () {
                 headCommit: null,
                 staged: {},
                 workdir: {},
-                untracked: [],
                 submodules: {},
             };
             return Object.assign(result, args);
@@ -251,7 +250,6 @@ describe("RepoStatus", function () {
                     headCommit: "1",
                     staged: { "x/y": RepoStatus.FILESTATUS.MODIFIED },
                     workdir: { "x/z": RepoStatus.FILESTATUS.REMOVED },
-                    untracked: ["q"],
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
@@ -267,7 +265,6 @@ describe("RepoStatus", function () {
                     headCommit: "1",
                     staged: { "x/y": RepoStatus.FILESTATUS.MODIFIED },
                     workdir: { "x/z": RepoStatus.FILESTATUS.REMOVED },
-                    untracked: ["q"],
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
@@ -290,13 +287,13 @@ describe("RepoStatus", function () {
             assert.equal(result.headCommit, c.e.headCommit);
             assert.deepEqual(result.staged, c.e.staged);
             assert.deepEqual(result.workdir, c.e.workdir);
-            assert.deepEqual(result.untracked, c.e.untracked);
             assert.deepEqual(result.submodules, c.e.submodules);
         });
     });
 
     describe("isClean", function () {
         const RELATION = RepoStatus.Submodule.COMMIT_RELATION;
+        const FILESTATUS = RepoStatus.FILESTATUS;
         const cases = {
             "trivial": {
                 input: new RepoStatus(),
@@ -306,7 +303,7 @@ describe("RepoStatus", function () {
                 input: new RepoStatus({
                     currentBranchName: "foo",
                     headCommit: "1",
-                    untracked: ["q"],
+                    workdir: { foo: FILESTATUS.ADDED },
                     submodules: {
                         "a": new RepoStatus.Submodule({
                             indexSha: "1",
@@ -327,7 +324,7 @@ describe("RepoStatus", function () {
             },
             "workdir": {
                 input: new RepoStatus({
-                    workdir: { x: RepoStatus.FILESTATUS.ADDED },
+                    workdir: { x: RepoStatus.FILESTATUS.MODIFIED },
                 }),
                 expected: false,
             },
