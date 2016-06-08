@@ -685,6 +685,8 @@ describe("Status", function () {
         // We will get the status of the repo named `x`.
 
         const FILESTATUS = RepoStatus.FILESTATUS;
+        const Submodule  = RepoStatus.Submodule;
+        const RELATION   = Submodule.COMMIT_RELATION;
 
         const cases = {
             "trivial": {
@@ -791,6 +793,56 @@ describe("Status", function () {
             // Submodules are tested earlier, but we need to make sure that
             // they're all included, even if they have been removed in the
             // index or added in the index.
+
+            "sub added to index": {
+                state: "a=S|x=S:I s=Sa:1",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    submodules: {
+                        "s": new Submodule({
+                            indexStatus: FILESTATUS.ADDED,
+                            indexSha: "1",
+                            indexUrl: "a",
+                        }),
+                    },
+                }),
+            },
+            "sub removed from index": {
+                state: "a=S|x=S:C2-1 s=Sa:1;I s;Bmaster=2",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "2",
+                    submodules: {
+                        "s": new Submodule({
+                            indexStatus: FILESTATUS.REMOVED,
+                            commitSha: "1",
+                            commitUrl: "a",
+                        }),
+                    },
+                }),
+            },
+            "sub changed in workdir": {
+                state: "a=S:C2-1;Bfoo=2|x=S:I s=Sa:1;Os H=2!W x=q",
+                expected: new RepoStatus({
+                    currentBranchName: "master",
+                    headCommit: "1",
+                    submodules: {
+                        "s": new Submodule({
+                            indexStatus: FILESTATUS.ADDED,
+                            indexSha: "1",
+                            indexUrl: "a",
+                            workdirShaRelation: RELATION.AHEAD,
+                            repoStatus: new RepoStatus({
+                                headCommit: "2",
+                                workdir: {
+                                    x: FILESTATUS.ADDED,
+                                },
+                            }),
+                        }),
+                    },
+                }),
+            },
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
