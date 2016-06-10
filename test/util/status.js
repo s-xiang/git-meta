@@ -905,6 +905,53 @@ describe("Status", function () {
         });
     });
 
+    describe("printRepoStatus", function () {
+        // We don't need to test the logic that reads status, just that we've
+        // printed in appropriate conditions.
+        // TODO: more fine-grained testing of output.
+
+        // We'll use repo `x` for printing.
+
+        const cases = {
+            "trivial": {
+                state: "x=S",
+                regex: /On branch.*master.*\nnothing to commit.*/,
+            },
+            "detached": {
+                state: "x=S:*=",
+                regex: /On detached/,
+            },
+            "dirty meta": {
+                state: "x=S:I qrst=foo",
+                regex: /.*qrst/,
+            },
+            "clean sub": {
+                state: "a=S|x=S:C2-1 qrts=Sa:1;Bmaster=2",
+                regex: /qrst/,
+                inverse: true,
+            },
+            "dirty sub": {
+                state: "a=S|x=S:I qrst=Sa:1",
+                regex: /qrst/,
+            }
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const x = w.repos.x;
+                const status = yield Status.getRepoStatus(x);
+                const result = Status.printRepoStatus(status);
+                if (c.inverse) {
+                    assert.notMatch(result, c.regex);
+                }
+                else {
+                    assert.match(result, c.regex);
+                }
+            }));
+        });
+    });
+
     describe("ensureClean", function () {
         // We don't need to test the `isClean` functionality; it's already
         // tested, just that it's called propertly.
