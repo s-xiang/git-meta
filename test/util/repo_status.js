@@ -223,6 +223,70 @@ describe("RepoStatus", function () {
         });
     });
 
+    describe("Submodule.isClean", function () {
+        const FILESTATUS = RepoStatus.FILESTATUS;
+        const Submodule = RepoStatus.Submodule;
+        const RELATION = Submodule.COMMIT_RELATION;
+
+        const cases = {
+            "no changes": {
+                input: new Submodule({
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                }),
+                expected: true,
+            },
+            "changed files in open repo": {
+                input: new Submodule({
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    repoStatus: new RepoStatus({
+                        workdir: {
+                            "foo": FILESTATUS.ADDED,
+                        },
+                    }),
+                }),
+                expected: false,
+            },
+            "new commit in open repo": {
+                input: new Submodule({
+                    indexSha: "1",
+                    indexShaRelation: RELATION.SAME,
+                    indexUrl: "a",
+                    commitSha: "1",
+                    commitUrl: "a",
+                    workdirShaRelation: RELATION.BEHIND,
+                    repoStatus: new RepoStatus({
+                        headCommit: "2",
+                    }),
+                }),
+                expected: false,
+            },
+            "change in index": {
+                input: new Submodule({
+                    indexSha: "1",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                }),
+                expected: false,
+            },
+        };
+
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const result = c.input.isClean();
+                assert.equal(result, c.expected);
+            });
+        });
+    });
+
     describe("RepoStatus", function () {
         const RELATION = RepoStatus.Submodule.COMMIT_RELATION;
         function m(args) {

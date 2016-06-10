@@ -38,6 +38,7 @@ const RepoStatus          = require("../../lib/util/repo_status");
 const Status              = require("../../lib/util/status");
 const SubmoduleUtil       = require("../../lib/util/submodule_util");
 const SubmoduleConfigUtil = require("../../lib/util/submodule_config_util");
+const UserError           = require("../../lib/util/user_error");
 
 // test utilities
 
@@ -269,7 +270,7 @@ describe("Status", function () {
         const cases = {
             "trivial": { input: new RepoStatus(), empty: true, },
             "with current branch": {
-                input: new RepoStatus({ currenBranchName: "foo" }),
+                input: new RepoStatus({ currentBranchName: "foo" }),
                 empty: true,
             },
             "with head": {
@@ -854,6 +855,199 @@ describe("Status", function () {
                                                      w.commitMap,
                                                      w.urlMap);
                 assert.deepEqual(mappedResult, c.expected);
+            }));
+        });
+    });
+
+    describe("printSubmodulesStatus", function () {
+        // The implementation of this method is mostely deferred to
+        // `getRepoStatus` and `printSubmoduleStatus`; we'll do some basic
+        // testing by validating output vs. regular expressions.
+
+        // We'll check status of the repo named `x`.
+        const cases = {
+            "tivial": {
+                state: "x=S",
+                names: [],
+                regex: /^$/,
+            },
+            "bad": {
+                state: "x=S",
+                names: ["foo"],
+                regex: /.*foo.*\n.*not the name/,
+            },
+            "no changes": {
+                state:
+                    "a=S|x=S:C2-1 xyz=Sa:1;Bmaster=2;Oxyz Bmaster=1!*=master",
+                names: ["xyz"],
+                regex: /.*xyz.*\nno changes/,
+            },
+            "there, but not visible": {
+                state: "a=S|x=S:C2-1 xyz=Sa:1;Bmaster=2",
+                names: ["xyz"],
+                regex: /.*xyz.*\nnot visible/,
+            },
+            "some changes": {
+                state: "a=S|x=S:I xyz=Sa:1",
+                names: ["xyz"],
+                regex: /.*xyz.*\n.*Added.*/,
+            },
+        };
+
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const x = w.repos.x;
+                const result = yield Status.printSubmodulesStatus(x, c.names);
+                assert.match(result, c.regex);
+            }));
+        });
+    });
+
+    describe("ensureClean", function () {
+        // We don't need to test the `isClean` functionality; it's already
+        // tested, just that it's called propertly.
+        // TODO: regex on error message.
+
+        // We will check the repo named `x`.
+        const cases = {
+            "trivial": {
+                state: "x=S",
+                fails: false,
+            },
+            "and a clean submodule": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os",
+                fails: false,
+            },
+            "dirty meta": {
+                state: "x=S:I foo=bar",
+                fails: true,
+            },
+            "and a dirty sub": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os W README.md=aaa",
+                fails: true,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const x = w.repos.x;
+                const xStat = yield Status.getRepoStatus(x);
+                try {
+                    Status.ensureClean(xStat);
+                    assert.equal(c.fails, false);
+                    return;                                           // RETURN
+                }
+                catch (e) {
+                    if (!(e instanceof UserError)) {
+                        throw e;
+                    }
+                }
+                assert(c.fails);
+            }));
+        });
+    });
+
+    describe("ensureConsistent", function () {
+        // TODO: check formatting of error message.
+
+        // We'll be checking the consistency of the repo named `x`.
+        const cases = {
+            "trivial": {
+                state: "x=S",
+                fails: false,
+            },
+            "no current branch": {
+                state: "x=S:*=",
+                fails: true,
+            },
+            "good sub": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2",
+                fails: false,
+            },
+            "sub with staged change": {
+                state: "a=S|x=S:I s=Sa:1",
+                fails: true,
+            },
+            "good open sub": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os Bmaster=1!*=master",
+                fails: false,
+            },
+            "no sub branch": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os",
+                fails: true,
+            },
+            "sub on wrong branch": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os Bfoo=1!*=foo",
+                fails: true,
+            },
+            "sub with new commit in open repo": {
+                state: "a=S|x=S:C2-1 s=Sa:1;Bmaster=2;Os Bmaster=2!*=master",
+                fails: true,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const x = w.repos.x;
+                const xStat = yield Status.getRepoStatus(x);
+                let error = "";
+                try {
+                    Status.ensureConsistent(xStat);
+                    assert.equal(c.fails, false);
+                    return;                                           // RETURN
+                }
+                catch (e) {
+                    if (!(e instanceof UserError)) {
+                        throw e;
+                    }
+                    error = e.stack;
+                }
+                assert(c.fails, error);
+            }));
+        });
+    });
+
+    describe("ensureCleanAndConsistent", function () {
+        // We don't have to test much here; this method defers to `ensureClean`
+        // and `ensureConsistent`.
+
+        // Ensure the repo `x`.
+        const cases = {
+            "trivial": {
+                state: "x=S",
+                fails: false,
+            },
+            "inconsistent": {
+                state: "x=S:*=",
+                fails: true,
+            },
+            "unclean": {
+                state: "x=S:I foo=bar",
+                fails: true,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const w = yield RepoASTTestUtil.createMultiRepos(c.state);
+                const x = w.repos.x;
+                let error = "";
+                try {
+                    yield Status.ensureCleanAndConsistent(x);
+                    assert.equal(c.fails, false);
+                    return;                                           // RETURN
+                }
+                catch (e) {
+                    if (!(e instanceof UserError)) {
+                        throw e;
+                    }
+                    error = e.stack;
+                }
+                assert(c.fails, error);
             }));
         });
     });
