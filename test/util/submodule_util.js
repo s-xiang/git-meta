@@ -32,6 +32,7 @@
 
 const assert  = require("chai").assert;
 const co      = require("co");
+const fs      = require("fs-promise");
 const NodeGit = require("nodegit");
 const path    = require("path");
 
@@ -315,6 +316,23 @@ describe("SubmoduleUtil", function () {
                 assert.deepEqual(result.sort(), c.expected.sort());
             }));
         });
+
+        it("listOpenSubmodules-missing", co.wrap(function *() {
+            // Verify that a module is not listed as open when it has an entry
+            // in `.git/config` but is missing the `.git` link in its
+            // directory.
+
+            const repo = yield TestUtil.createSimpleRepository();
+            const text = `\
+[submodule "z"]
+        url = /Users/peabody/repos/git-meta-demo/scripts/demo/z-bare
+`;
+            const repoPath = repo.path();
+            const configPath = path.join(repoPath, "config");
+            yield fs.appendFile(configPath, text);
+            const openSubs = yield SubmoduleUtil.listOpenSubmodules(repo);
+            assert.deepEqual(openSubs, []);
+        }));
     });
 
     describe("getSubmoduleRepos", function () {
