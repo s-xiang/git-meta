@@ -120,8 +120,8 @@ Git and Mercurial) suffer performance degradation as the following increase:
 - number of developers -- exacerbate other listed issues, and can cause
   contention on servers
 
-Google has famously built its own proprietary mono-repo.  Before starting this
-project, we investigated some potential open-source solutions:
+Before starting this project, we investigated some potential open-source
+solutions:
 
 [Gitslave](http://gitslave.sourceforge.net)
 [myrepos](https://myrepos.branchable.com)
@@ -146,3 +146,27 @@ the problem, but are very difficult to use and lack some of the desired
 features.  With git-meta, we will build on top of Git submodules to provide the
 desired functionality leveraging existing Git commands.
 
+### Git-meta Architecture
+
+#### Overview
+
+Git-meta creates a logical mono-repo out of multiple *sub-repositories* by
+tying them together in a *meta-repository* with git submodules.  Recall that a
+git submodule consists of the following:
+
+1. a path at which to root the submodule in the referencing (meta) repository
+1. the url of the referenced (sub) repository
+1. the id of the "current" commit in the referenced (sub) repository
+
+Thus, a meta-repo presents the entire source structure in a rooted directory
+tree, and the state of the meta-repo unambiguously describes the complete
+state of all sub-repos, i.e., the mono-repo.
+
+```
+'-----------------------`
+|              foo/bar--|---------> [fafb http://foo-bar.git]
+| meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]
+|              zam------|---------> [aaba http://zam.git]
+|                       |
+`-----------------------,
+```
