@@ -92,13 +92,12 @@ a mono-repo must not degrade as it grows in terms of:
 ## What are the advantages of a mono-repo?
 
 The alternative to a mono-repo is for an organization to decompose its source
-into multiple unrelated repositories.  In comparison to a multi-repo strategy,
+into multiple repositories.  In comparison to a multi-repo strategy,
 a mono-repo provides the following advantages:
 
 - Atomic changes can be made across the organization's code.
 - The history of the of an organization's source is described in a mono-repo.
-  With multiple unrelated repositories, it is impossible to present a unified
-  history.
+  With multiple repositories, it is impossible to present a unified history.
 - Because all source is described in one history, archaeological operations such
   as `bisect` are easily supported.
 - Source in the organization is easy to find.
@@ -126,17 +125,12 @@ section, but essentially it provides a way to use standard git operations
 across many repositories.  Before starting on git-meta, we did investigate
 several existing products that take a similar approach:
 
-[Gitslave](http://gitslave.sourceforge.net)
-
-[myrepos](https://myrepos.branchable.com)
-
-[Android Repo](https://source.android.com/source/using-repo.html)
-
-[gclient](http://dev.chromium.org/developers/how-tos/depottools#TOC-gclient)
-
-[Git subtrees](https://git-scm.com/book/en/v1/Git-Tools-Subtree-Merging)
-
-[Git submodules](https://git-scm.com/docs/git-submodule)
+- [Gitslave](http://gitslave.sourceforge.net)
+- [myrepos](https://myrepos.branchable.com)
+- [Android Repo](https://source.android.com/source/using-repo.html)
+- [gclient](http://dev.chromium.org/developers/how-tos/depottools#TOC-gclient)
+- [Git subtrees](https://git-scm.com/book/en/v1/Git-Tools-Subtree-Merging)
+- [Git submodules](https://git-scm.com/docs/git-submodule)
 
 All of these tools overlap with the problems git-meta is trying to solve, but
 none of them are sufficient:
