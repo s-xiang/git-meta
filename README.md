@@ -120,10 +120,10 @@ and the number of users increase.  Over time, basic operations such as `git
 status`, `git fetch`, etc. become slow enough that developers, given the
 opportunity, will begin splitting code into multiple repositories.
 
-We will discuss the architecture of git-meta in more detail in the next
-section, but essentially it provides a way to use standard git operations
-across many repositories.  Before starting on git-meta, we did investigate
-several existing products that take a similar approach:
+We discuss the architecture of git-meta in more detail in the next section, but
+essentially it provides a way to use standard git operations across many
+repositories.  Before starting on git-meta, we did investigate several existing
+products that take a similar approach:
 
 - [Gitslave](http://gitslave.sourceforge.net)
 - [myrepos](https://myrepos.branchable.com)
@@ -146,22 +146,16 @@ none of them are sufficient:
 
 Git submodules come the closest: they do provide the technical ability to solve
 the problem, but are very difficult to use and lack some of the desired
-features.  With git-meta, we will build on top of Git submodules to provide the
+features.  With git-meta, we build on top of Git submodules to provide the
 desired functionality leveraging existing Git commands.
 
 ## Git-meta Architecture
 
 In this section, we first provide an overview of the mono-repo. We describe its
-structure and basic concerns such as commits, and performance.
-
-Next, we present the problems with collaboration, branches, and referential
-integrity; and introduce the *syntetic-meta-ref* as a solution.  We describe
-the implications for performance, tooling, and offline workflows created by
-these considerations.
-
-Finally, we describe server-side considerations: integrity validations that
-must be performed in server-side checks, and name-partitioning strategies.
-
+structure, basic concerns such as commits, and performance.  Next, we describe
+*synthetic-meta-refs* and the problems they solve.  Finally, we describe
+server-side considerations: integrity validations that must be performed in
+server-side checks, and name-partitioning strategies.
 
 ### Overview
 
@@ -235,7 +229,7 @@ significant to git-meta.  Users may create arbitrary branches in sub-repos, but
 they are generally ignored by git-meta commands and workflows.
 
 Git-meta itself creates and utilizes a special type of ref, called a
-*syntetic-meta-ref* in sub-repos; we will describe these in detail later.
+*syntetic-meta-ref* in sub-repos; we describe these in detail later.
 
 #### Cloning, client-side representation
 
@@ -276,3 +270,33 @@ minimized through several strategies:
   dependencies of sub-repos they need to change.  While outside the scope of
   git-meta, we are developing a proposal to address this case and will link to
   it here when ready.
+
+### Name-partitioning
+
+Git-meta works with a single meta-repo namespace, but we strongly recommend the
+use of a name-partitioning strategy, generally either *forks* or [git
+namespaces](https://git-scm.com/docs/gitnamespaces).  Otherwise, every user
+will be receive every branch in existence on every fetch/clone, causing
+significant performance problems over time.
+
+You must partition the namespace (through whichever method) in only the
+meta-repo.  Partitions are unnecessary in sub-repos; as mentioned above,
+git-meta does not interact with sub-repo ref names.  Furthermore, paritions
+(whether forks or namespaces) are managed via remotes.  Managing and
+synchronizing between the sets of remotes in the meta-repo and open sub-repos
+would be complicated, error-prone, and confusing to users.
+
+To prevent name partitionnig in sub-repos, you must either add sub-repos
+with absolute URLs, or configure your server-side environment so that forked
+sub-repo URLs automatically redirect to the single sub-repo URL.
+
+### Synthetic-Meta-Refs
+
+In this section, we describe several collaboration strategies, identifying
+problems with each one.  Then we describe the *synthetic-meta-ref*, and show
+how it provides a solution to the previously mentioned collaboration problems.
+Finally, we explore the ramifications of our synthetic-meta-ref strategy on
+tooling, performance, and offline workflows.
+
+#### Collaboration Scenarios
+
