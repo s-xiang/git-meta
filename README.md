@@ -39,6 +39,18 @@ submodules.___
 
 # Overview
 
+## What is git-meta?
+
+Git-meta describes an architecture and provides a set of tools to facilitate
+the implementation of a *mono-repo* and attendant workflows.
+
+Aside from the ability to install the tools provided in this repository,
+git-meta requires only Git.  Git-meta is not tied to any specific Git hosting
+solution, and does not provide operations that are hosting-solution-specific,
+such as the ability to create new (server-side) repositories.
+
+## What is in the rest of this document?
+
 In the first section of this document, we discuss the mono-repo.  We describe
 key features and properties implied by the term, explain what makes
 mono-repositories an attractive strategy for source code management, and also
@@ -48,8 +60,8 @@ worth solving and why there are no existing solutions.
 
 The next section presents our architecture for implementing a mono-repo using
 git submodules.  We describe the overall repository structure and
-relationships, client- and server-specific concerns, and collaboration
-strategies such as pull requests.
+relationships, solutions to collaboration problems, server-side validations,
+and name-partitioning strategies.
 
 Finally, we discuss the tools provided by this project to support the proposed
 architecture.  It is important to note that git-meta is built entirely on git:
@@ -145,6 +157,18 @@ desired functionality leveraging existing Git commands.
 
 ## Git-meta Architecture
 
+In this section, we first provide an overview of the mono-repo. We describe its
+structure and basic concerns such as commits, and performance.
+
+Next, we present the problems with collaboration, branches, and referential
+integrity; and introduce the *syntetic-meta-ref* as a solution.  We describe
+the implications for performance, tooling, and offline workflows created by
+these considerations.
+
+Finally, we describe server-side considerations: integrity validations that
+must be performed in server-side checks, and name-partitioning strategies.
+
+
 ### Overview
 
 #### Structure -- the meta-repo
@@ -190,7 +214,7 @@ Commits in sub-repos do not directly affect the state of the mono-repo.
 Updating the mono-repo requires at least two commits: (1) a commit in one or
 more sub-repos and (2) a commit in the meta-repo.  Say, for example, that we
 make changes to the `foo/bar` and `foo/baz` repositories, updating their HEADs
-to point to `1a1a` and 1b1b`, respectively.  Our mono-repo has not yet been
+to point to `1a1a` and `1b1b`, respectively.  Our mono-repo has not yet been
 affected, and if you were to make a clone of the meta-repo described above, you
 would see the same state diagrammed previously.  To update the mono-repo, a
 commit must be made in the meta-repo, changing the mono-repo to look like,
@@ -210,11 +234,51 @@ e.g.:
 `------------------------------------------------------------------------`
 ```
 
-#### Client-side behavior
+#### Refs
 
+Only branches (and other refs, like tags) in the meta-repos are considered
+significant to git-meta.  Users may create arbitrary branches in sub-repos, but
+they are generally ignored by git-meta commands and workflows.
 
+Git-meta itself creates and utilizes a special type of ref, called a
+*syntetic-meta-ref* in sub-repos; we will describe these in detail later.
 
-A sub-module may be *opened* or *closed*; they are generally closed by after
-cloning a meta-repo.  Developers open sub-repos as they need them.
+#### Cloning, client-side representation
 
-Therefore, o
+Users create local clones of a mono-repo by cloning the url of its meta-repo.
+All sub-repos are *closed* by default.  When the user *opens* a sub-repo, it is
+cloned and checked out.  Thus an initial clone requires downloading only
+meta-information.  Subsequently, users need open only the sub-repos they need;
+typically a small fraction of the organization's code.
+
+#### Performance
+
+At a minimum, users working in a mono-repo must download the meta-repo and all
+sub-repos containing code that they require to work.
+
+There is a commit in the meta-repo for every change made in the organization,
+so the number of commits in the history of the meta-repo may be very large.
+However, the information contained in each commit is relatively small:
+generally indicating only changes to submodule pointers.  Furthermore, the
+on-disk (checked out) rendering of the meta-repo is also small, being only a
+file indicating the state of each sub-repo, and growing only as sub-repos are
+added.  Therefore, the cost of cloning and checking out a meta-repo will be
+relatively cheap, and scale slowly with the addition of new code -- especially
+compared with the cost of doing the same operations in a single (physical)
+repository.
+
+Most other operations such as `checkout`, `commit`, `merge`, `status`, etc.
+increase in cost with the number of files in open repositories on disk.
+Therefore, the performance of a mono-repo will generally be determined by how
+many files developers need to have on disk to do their work; this number can be
+minimized through several strategies:
+
+- decomposing large large sub-repos into multiple sub-repos as they become
+  overly large
+- minimizing dependencies -- if an organization's software is a giant
+  interdependent ball, its developers may need most of its code on disk to work
+- eliminate the need to open dependent sub-repos -- typically, a developer
+  needs to open sub-repos that the need to (a) change, or (b) are build
+  dependencies of sub-repos they need to change.  While outside the scope of
+  git-meta, we are developing a proposal to address this case and will link to
+  it here when ready.
