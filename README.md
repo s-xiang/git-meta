@@ -51,12 +51,12 @@ such as the ability to create new (server-side) repositories.
 
 ## What is in the rest of this document?
 
-In the first section of this document, we discuss the mono-repo.  We describe
-key features and properties implied by the term, explain what makes
-mono-repositories an attractive strategy for source code management, and also
-why they are hard to implement, exploring some open source projects that are in
-this space.  In short, the first section should explain why this problem is
-worth solving and why there are no existing solutions.
+In the first section of this document, we define the term *mono-repo*.  We
+describe key features and properties of a mono-repo, explain what makes
+mono-repos an attractive strategy for source code management, and also why they
+are hard to implement, exploring some open source projects that are in this
+space.  In short, the first section should explain why this problem is worth
+solving and why there are no existing solutions.
 
 The next section presents our architecture for implementing a mono-repo using
 git submodules.  We describe the overall repository structure and
@@ -152,10 +152,10 @@ desired functionality leveraging existing Git commands.
 ## Git-meta Architecture
 
 In this section, we first provide an overview of the mono-repo. We describe its
-structure, basic concerns such as commits, and performance.  Next, we describe
-*synthetic-meta-refs* and the problems they solve.  Finally, we describe
-server-side considerations: integrity validations that must be performed in
-server-side checks, and name-partitioning strategies.
+structure, basic concerns such as commits, and performance.  Next, we discuss
+ref name partitioning.  Then, we describe *synthetic-meta-refs* and the
+problems they solve.  Finally, we describe integrity validations that must be
+performed in server-side checks.
 
 ### Overview
 
@@ -292,11 +292,45 @@ sub-repo URLs automatically redirect to the single sub-repo URL.
 
 ### Synthetic-Meta-Refs
 
-In this section, we describe several collaboration strategies, identifying
-problems with each one.  Then we describe the *synthetic-meta-ref*, and show
-how it provides a solution to the previously mentioned collaboration problems.
-Finally, we explore the ramifications of our synthetic-meta-ref strategy on
-tooling, performance, and offline workflows.
+In this section, we describe our original (naive) branch collaboration strategy
+and some problems it created.  Then we describe the *synthetic-meta-ref*, and
+show how it provides a solution to the previously mentioned collaboration
+problems.  Finally, we explore the ramifications of our synthetic-meta-ref
+strategy on tooling, performance, and offline workflows.
 
-#### Collaboration Scenarios
+#### Naive Collaboration Strategy
 
+Our original collaboration strategy was fairly simple:
+
+1. The meta-repo and open sub-repos would generally be on the same checked-out
+   branch.
+1. When pushing a ref, we would first push the ref with that name from open
+   sub-repos, then from the meta-repo.
+1. When landing pull-requests or doing other server-side validations, we would
+   check that for a given meta-repo branch, we had corresponding valid
+   sub-repo branches of the same name.
+1. Contrary to what we outlined above, since sub-repo ref names were
+   significant to git-meta, sub-repos partitioning would follow meta-repo
+   partitioning.
+
+This model created several problems:
+
+##### Race conditions on collaboration branches
+
+Git does not provide for atomic cross-repository operations.  So, our plan had
+been to implement push such that we updated affected sub-repo branches first,
+then the meta-repo branch.  Furthermore, we would provide server-side
+validation to reject attempts to update a meta-repo branch to a commit
+contradicting the state of the corresponding sub-repo branch.  For example, if
+a user pushed a change to branch `foo` in the meta-repo that updated repository
+`bar` to be on commit `aaaa`, then the repository `bar` must have a branch
+`foo` pointing to commit `aaaa` (or possibly another commit descended from
+`aaaa`).  We recognized the ability for users to break integrity through force
+pushes, but felt that this check would ensure that meta-repo collaboration
+branches (where force-pushes would be disabled) remained in a valid state:
+meta-repo commits would always indicate valid (present), rooted (against GC) in
+the corresponding sub-repos.
+
+We were correct, but unfortunately, this strategy suffers from a potential race
+condition that could put a branch into a state such that it could no longer be
+updated, and that users could not correct.
