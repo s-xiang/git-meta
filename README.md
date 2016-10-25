@@ -115,10 +115,15 @@ across many repositories.  Before starting on git-meta, we did investigate
 several existing products that take a similar approach:
 
 [Gitslave](http://gitslave.sourceforge.net)
+
 [myrepos](https://myrepos.branchable.com)
+
 [Android Repo](https://source.android.com/source/using-repo.html)
+
 [gclient](http://dev.chromium.org/developers/how-tos/depottools#TOC-gclient)
+
 [Git subtrees](https://git-scm.com/book/en/v1/Git-Tools-Subtree-Merging)
+
 [Git submodules](https://git-scm.com/docs/git-submodule)
 
 All of these tools overlap with the problems git-meta is trying to solve, but
@@ -154,7 +159,7 @@ Git submodules.  Recall that a git submodule consists of the following:
 
 Thus, a meta-repo presents the entire source structure in a rooted directory
 tree, and the state of the meta-repo unambiguously describes the complete
-state of all sub-repos, i.e., the mono-repo.
+state of all sub-repos, i.e., the mono-repo:
 
 ```
 '------------------------------------------------------------------------`
