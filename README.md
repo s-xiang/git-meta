@@ -174,20 +174,32 @@ state of all sub-repos, i.e., the mono-repo:
 '------------------------------------------------------------------------`
 |                                                                        |
 |  '-----------------------`                                             |
-|  |                       |                                             |
-|  |              foo/bar--|---------> [fafb http://foo-bar.git]         |
-|  | meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]         |
-|  | a12f             zam--|---------> [aaba http://zam.git]             |
-|  |                       |                                             |
+|  | meta-repo  |          |                                             |
+|  | *master =  | foo/bar--|---------> [a1   http://foo-bar.git]         |
+|  | [m1]       | foo/baz--|---------> [b1   http://foo-baz.git]         |
+|  |            |     zam--|---------> [c1   http://zam.git]             |
+|  |            |          |                                             |
 |  `-----------------------,                                             |
 |                                                                        |
 `------------------------------------------------------------------------`
 ```
 
-This meta-repo, for instance is currently on commit `a12f`.  It references
-three sub-repos, rooted at: `foo/bar`, `foo/baz`, and `zam`.  The sub-repo
-rooted at `foo/bar` lives in the url "http://foo-bar.git", and is currently on
-commit `fafb`.
+This meta-repo, for instance, has the `master` branched checked out on commit
+`m1`.  It references three sub-repos, rooted at: `foo/bar`, `foo/baz`, and
+`zam`.  The sub-repo rooted at `foo/bar` lives in the url "http://foo-bar.git",
+and is currently on commit `a1`.  In future diagrams we'll use a more compact
+representation:
+
+```
+'---------------------------`
+| meta-repo  |              |
+| *master    | foo/bar [a1] |
+| [m1]       | foo/baz [b1] |
+|            |     zam [c1] |
+|            |              |
+`---------------------------,
+```
+
 
 Note that git-meta allows users to put arbitrary files in the meta-repo (e.g.,
 global configuration data), but for simplicity we ignore them in the rest of
@@ -199,24 +211,31 @@ Commits in sub-repos do not directly affect the state of the mono-repo.
 Updating the mono-repo requires at least two commits: (1) a commit in one or
 more sub-repos and (2) a commit in the meta-repo.  Say, for example, that we
 make changes to the `foo/bar` and `foo/baz` repositories, updating their HEADs
-to point to `1a1a` and `1b1b`, respectively.  Our mono-repo has not yet been
-affected, and if you were to make a clone of the meta-repo described above, you
-would see the same state diagrammed previously.  To update the mono-repo, a
-commit must be made in the meta-repo, changing the mono-repo to look like,
-e.g.:
+to point to `a2` and `b2`, respectively:
 
 ```
-'------------------------------------------------------------------------`
-|                                                                        |
-|  '-----------------------`                                             |
-|  |                       |                                             |
-|  |              foo/bar--|---------> [1a1a http://foo-bar.git]         |
-|  | meta-repo    foo/baz--|---------> [1b1b http://foo-baz.git]         |
-|  | 1c1c             zam--|---------> [aaba http://zam.git]             |
-|  |                       |                                             |
-|  `-----------------------,                                             |
-|                                                                        |
-`------------------------------------------------------------------------`
+'-------------------------------`
+| meta-repo  |                  |
+| *master    | foo/bar [a2->a1] |
+| [m1]       | foo/baz [b2->b1] |
+|            |     zam [c1]     |
+|            |                  |
+`-------------------------------,
+```
+
+Our mono-repo has not yet been affected, and if you were to make a clone of the
+meta-repo described above, you would see the same state diagrammed previously.
+To update the mono-repo, a commit must be made in the meta-repo, changing the
+mono-repo to look like, e.g.:
+
+```
+'-------------------------------`
+| meta-repo  |                  |
+| *master    | foo/bar [a2->a1] |
+| [m2->m1]   | foo/baz [b2->b1] |
+|            |     zam [c1]     |
+|            |                  |
+`-------------------------------,
 ```
 
 #### Refs
@@ -316,11 +335,27 @@ This model created several problems:
 
 Git does not provide for atomic cross-repository operations.  So, our plan had
 been to implement push such that we updated affected sub-repo branches first,
-then the meta-repo branch.  Given the following scenario, where a user has new
-(local) changes in three repositories:
+then the meta-repo branch.  Furthermore, we would provide server-side
+validation to reject attempts to update a meta-repo branch to a commit
+contradicting the state of the corresponding sub-repo branch.
+
+Given the following scenario, where a user has new (local) changes on `master`
+in three repositories:
 
 ```
-Origin
+origin/master
+
+ '-----------------------`                                             |
+ |                       
+ |              foo/bar [fafb]
+ | meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]         |
+ | a12f             zam--|---------> [aaba http://zam.git]             |
+ |                       |                                             |
+ `-----------------------,                                             |
+                                                                       |
+-----------------------------------------------------------------------`
+
+(local) master
 '------------------------------------------------------------------------`
 |                                                                        |
 |  '-----------------------`                                             |
@@ -332,26 +367,11 @@ Origin
 |  `-----------------------,                                             |
 |                                                                        |
 `------------------------------------------------------------------------`
-
-Local
-'------------------------------------------------------------------------`
-|                                                                        |
-|  '-----------------------`                                             |
-|  |                       |                                             |
-|  |              foo/bar--|---------> [fafb http://foo-bar.git]         |
-|  | meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]         |
-|  | a12f             zam--|---------> [aaba http://zam.git]             |
-|  |                       |                                             |
-|  `-----------------------,                                             |
-|                                                                        |
-`------------------------------------------------------------------------`
 ```
 
 
 
-Furthermore, we would provide server-side
-validation to reject attempts to update a meta-repo branch to a commit
-contradicting the state of the corresponding sub-repo branch.  For example, if
+  For example, if
 a user pushed a change to branch `foo` in the meta-repo that updated repository
 `bar` to be on commit `aaaa`, then the repository `bar` must have a branch
 `foo` pointing to commit `aaaa` (or possibly another commit descended from
