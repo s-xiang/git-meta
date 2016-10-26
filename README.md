@@ -54,24 +54,21 @@ such as the ability to create new (server-side) repositories.
 In the first section of this document, we define the term *mono-repo*.  We
 describe key features and properties of a mono-repo, explain what makes
 mono-repos an attractive strategy for source code management, and also why they
-are hard to implement, exploring some open source projects that are in this
-space.  In short, the first section should explain why this problem is worth
-solving and why there are no existing solutions.
+are not found in most organizations, exploring some open source projects that
+are in this space.  In short, the first section should explain why this problem
+is worth solving and why there are no existing solutions.
 
 The next section presents our architecture for implementing a mono-repo using
-git submodules.  We describe the overall repository structure and
-relationships, solutions to collaboration problems, server-side validations,
-and name-partitioning strategies.
+git submodules.  We describe the overall repository structure, solutions to
+collaboration problems, name-partitioning strategies, and server-side
+validations.
 
-Finally, we discuss the tools provided by this project to support the proposed
-architecture.  It is important to note that git-meta is built entirely on git:
-it requires no extra servers, services, or databases and is not tied to any
-specific git hosting solution.  There are two main sets of tools provided by
-git-meta: programs intended to be run as server-side commit hooks to maintain
-git-meta invariants and repository integrity; and a program intended to be used
-as a git plugin on the client that simplifies interactions with submodules
-(e.g., by providing a submodule-aware `merge` operation), and implements
-other mono-repository aware functionality.
+Finally, we discuss the two types of tools provided by this project to support
+the proposed architecture: programs intended to be run as server-side commit
+hooks to maintain git-meta invariants and repository integrity; and a program
+intended to be used as a git plugin on the client that simplifies interactions
+with submodules (e.g., by providing a submodule-aware `merge` operation), and
+implements other mono-repo-aware functionality.
 
 # Mono-repo
 
@@ -246,7 +243,7 @@ sub-repos containing code that they require to work.
 
 There is a commit in the meta-repo for every change made in the organization,
 so the number of commits in the history of the meta-repo may be very large.
-However, the information contained in each commit is relatively small:
+However, the information contained in each commit is relatively small,
 generally indicating only changes to submodule pointers.  Furthermore, the
 on-disk (checked out) rendering of the meta-repo is also small, being only a
 file indicating the state of each sub-repo, and growing only as sub-repos are
@@ -276,7 +273,7 @@ minimized through several strategies:
 Git-meta works with a single meta-repo namespace, but we strongly recommend the
 use of a name-partitioning strategy, generally either *forks* or [git
 namespaces](https://git-scm.com/docs/gitnamespaces).  Otherwise, every user
-will be receive every branch in existence on every fetch/clone, causing
+will receive every branch in existence on every fetch/clone, causing
 significant performance problems over time.
 
 You must partition the namespace (through whichever method) in only the
@@ -309,9 +306,9 @@ Our original collaboration strategy was fairly simple:
 1. When landing pull-requests or doing other server-side validations, we would
    check that for a given meta-repo branch, we had corresponding valid
    sub-repo branches of the same name.
-1. Contrary to what we outlined above, since sub-repo ref names were
-   significant to git-meta, sub-repos partitioning would follow meta-repo
-   partitioning.
+1. Sub-repo partitioning would follow meta-repo partitioning; for example, when
+   a user "forked" the mono-repo, user-specific forks would be created for the
+   meta-repo and each sub-repo.
 
 This model created several problems:
 
@@ -319,7 +316,40 @@ This model created several problems:
 
 Git does not provide for atomic cross-repository operations.  So, our plan had
 been to implement push such that we updated affected sub-repo branches first,
-then the meta-repo branch.  Furthermore, we would provide server-side
+then the meta-repo branch.  Given the following scenario, where a user has new
+(local) changes in three repositories:
+
+```
+Origin
+'------------------------------------------------------------------------`
+|                                                                        |
+|  '-----------------------`                                             |
+|  |                       |                                             |
+|  |              foo/bar--|---------> [1a1a http://foo-bar.git]         |
+|  | meta-repo    foo/baz--|---------> [1b1b http://foo-baz.git]         |
+|  | 1c1c             zam--|---------> [aaba http://zam.git]             |
+|  |                       |                                             |
+|  `-----------------------,                                             |
+|                                                                        |
+`------------------------------------------------------------------------`
+
+Local
+'------------------------------------------------------------------------`
+|                                                                        |
+|  '-----------------------`                                             |
+|  |                       |                                             |
+|  |              foo/bar--|---------> [fafb http://foo-bar.git]         |
+|  | meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]         |
+|  | a12f             zam--|---------> [aaba http://zam.git]             |
+|  |                       |                                             |
+|  `-----------------------,                                             |
+|                                                                        |
+`------------------------------------------------------------------------`
+```
+
+
+
+Furthermore, we would provide server-side
 validation to reject attempts to update a meta-repo branch to a commit
 contradicting the state of the corresponding sub-repo branch.  For example, if
 a user pushed a change to branch `foo` in the meta-repo that updated repository
