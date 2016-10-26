@@ -211,22 +211,12 @@ Commits in sub-repos do not directly affect the state of the mono-repo.
 Updating the mono-repo requires at least two commits: (1) a commit in one or
 more sub-repos and (2) a commit in the meta-repo.  Say, for example, that we
 make changes to the `foo/bar` and `foo/baz` repositories, updating their HEADs
-to point to `a2` and `b2`, respectively:
-
-```
-'-------------------------------`
-| meta-repo  |                  |
-| *master    | foo/bar [a2->a1] |
-| [m1]       | foo/baz [b2->b1] |
-|            |     zam [c1]     |
-|            |                  |
-`-------------------------------,
-```
+to point to `a2` and `b2`, respectively.
 
 Our mono-repo has not yet been affected, and if you were to make a clone of the
-meta-repo described above, you would see the same state diagrammed previously.
-To update the mono-repo, a commit must be made in the meta-repo, changing the
-mono-repo to look like, e.g.:
+meta-repo in this condition, you would see the same state diagrammed
+previously.  To update the mono-repo, a commit must be made in the meta-repo,
+changing the mono-repo to look like, e.g.:
 
 ```
 '-------------------------------`
@@ -340,35 +330,23 @@ validation to reject attempts to update a meta-repo branch to a commit
 contradicting the state of the corresponding sub-repo branch.
 
 Given the following scenario, where a user has new (local) changes on `master`
-in three repositories:
+in two repositories, `a` and `b`, and the actual `:
 
 ```
-origin/master
+local
+'-------------------------`
+| meta-repo  |            |
+| master     | a [a2->a1] |
+| [m2->m1]   | b [b2->b1  |
+`-------------------------`
 
- '-----------------------`                                             |
- |                       
- |              foo/bar [fafb]
- | meta-repo    foo/baz--|---------> [eeef http://foo-baz.git]         |
- | a12f             zam--|---------> [aaba http://zam.git]             |
- |                       |                                             |
- `-----------------------,                                             |
-                                                                       |
------------------------------------------------------------------------`
-
-(local) master
-'------------------------------------------------------------------------`
-|                                                                        |
-|  '-----------------------`                                             |
-|  |                       |                                             |
-|  |              foo/bar--|---------> [1a1a http://foo-bar.git]         |
-|  | meta-repo    foo/baz--|---------> [1b1b http://foo-baz.git]         |
-|  | 1c1c             zam--|---------> [aaba http://zam.git]             |
-|  |                       |                                             |
-|  `-----------------------,                                             |
-|                                                                        |
-`------------------------------------------------------------------------`
+remote
+'---------------------`  '--------`  '--------`
+| meta-repo  |        |  | a      |  | b      |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2  |  | [a1]   |  | [b1]   |
+`---------------------`  `--------`  `--------`
 ```
-
 
 
   For example, if
