@@ -181,7 +181,7 @@ state of all sub-repos, i.e., the mono-repo:
 |  |            |          |                                             |
 |  `-----------------------,                                             |
 |                                                                        |
-`------------------------------------------------------------------------`
+`------------------------------------------------------------------------,
 ```
 
 This meta-repo, for instance, has the `master` branched checked out on commit
@@ -199,7 +199,6 @@ representation:
 |            |              |
 `---------------------------,
 ```
-
 
 Note that git-meta allows users to put arbitrary files in the meta-repo (e.g.,
 global configuration data), but for simplicity we ignore them in the rest of
@@ -330,35 +329,117 @@ validation to reject attempts to update a meta-repo branch to a commit
 contradicting the state of the corresponding sub-repo branch.
 
 Given the following scenario, where a user has new (local) changes on `master`
-in two repositories, `a` and `b`, and the actual `:
+in two repositories, `a` and `b`:
 
 ```
 local
 '-------------------------`
 | meta-repo  |            |
 | master     | a [a2->a1] |
-| [m2->m1]   | b [b2->b1  |
+| [m2->m1]   | b [b2->b1] |
 `-------------------------`
 
 remote
 '---------------------`  '--------`  '--------`
 | meta-repo  |        |  | a      |  | b      |
 | master     | a [a1] |  | master |  | master |
-| [m1]       | b [b2  |  | [a1]   |  | [b1]   |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
 `---------------------`  `--------`  `--------`
 ```
 
+If the user were to attempt to push `master` in the meta-repo without pushing
+the changes in `a` and `b` first, we would reject the change.  Using our
+recommended (tool-supported) method, `a` and `b` would have been pushed first
+(in parallel), leaving the world in this state for some period in time:
 
-  For example, if
-a user pushed a change to branch `foo` in the meta-repo that updated repository
-`bar` to be on commit `aaaa`, then the repository `bar` must have a branch
-`foo` pointing to commit `aaaa` (or possibly another commit descended from
-`aaaa`).  We recognized the ability for users to break integrity through force
-pushes, but felt that this check would ensure that meta-repo collaboration
-branches (where force-pushes would be disabled) remained in a valid state:
-meta-repo commits would always indicate valid (present), rooted (against GC) in
-the corresponding sub-repos.
+```
+local
+'-------------------------`
+| meta-repo  |            |
+| master     | a [a2->a1] |
+| [m2->m1]   | b [b2->b1] |
+`-------------------------`
 
-We were correct, but unfortunately, this strategy suffers from a potential race
-condition that could put a branch into a state such that it could no longer be
-updated, and that users could not correct.
+remote
+'---------------------`  '----------`  '----------`
+| meta-repo  |        |  | a        |  | b        |
+| master     | a [a1] |  | master   |  | master   |
+| [m1]       | b [b2] |  | [a2->a1] |  | [b2->b1] |
+`---------------------`  `----------`  `----------`
+```
+
+Until the meta-repo push lands:
+
+```
+local
+'-------------------------`
+| meta-repo  |            |
+| master     | a [a2->a1] |
+| [m2->m1]   | b [b2->b1] |
+`-------------------------`
+
+remote
+'---------------------`  '----------`  '----------`
+| meta-repo  |        |  | a        |  | b        |
+| master     | a [a1] |  | master   |  | master   |
+| [m2-m1]    | b [b2] |  | [a2->a1] |  | [b2->b1] |
+`---------------------`  `----------`  `----------`
+```
+
+Through this method, we could prevent logical corruption of the meta-repo with
+our check (unless force pushes are allowed in the sub-repos, but that could
+easily be disallowed).
+
+Unfortunately, this strategy suffers from a potential race condition that could
+put a branch in the meta-repo into a state such that it could no longer be
+updated.  For example, lets say Bob and Jill both have unrelated changes to
+repos `a` and `b`:
+
+```
+Bob's local                       Jill's local
+'-------------------------`       '-------------------------`
+| meta-repo  |            |       | meta-repo  |            |
+| master     | a [a2->a1] |       | master     | a [a3->a1] |
+| [m2->m1]   | b [b2->b1] |       | [m3->m1]   | b [b3->b1] |
+`-------------------------`       `-------------------------`
+
+remote
+'---------------------`  '--------`  '--------`
+| meta-repo  |        |  | a      |  | b      |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------`  `--------`  `--------`
+```
+
+If Bob pushes first, the result will be the state described above.  If Jill
+pushes after Bob, her sub-repo pushes (neither of which are fast-forwardable)
+will fail, and her meta-repo push will be rejected (though her client should
+not attempt it anyway).  This is an expected scenario.  But what if they go at
+the same time; Bob's push to `a` and Jill's push to `b` succeed, while Bob's
+push to `b`, and Jill's push to `a` fail:
+
+```
+Bob's local                       Jill's local
+'-------------------------`       '-------------------------`
+| meta-repo  |            |       | meta-repo  |            |
+| master     | a [a2->a1] |       | master     | a [a3->a1] |
+| [m2->m1]   | b [b2->b1] |       | [m3->m1]   | b [b3->b1] |
+`-------------------------`       `-------------------------`
+
+remote
+'---------------------`  '----------`  '----------`
+| meta-repo  |        |  | a        |  | b        |
+| master     | a [a1] |  | master   |  | master   |
+| [m2-m1]    | b [b2] |  | [a2->a1] |  | [b3->b1] |
+`---------------------`  `----------`  `----------`
+```
+
+Now, the remote meta-repo is technically in a valid state: users can clone it
+and checkout, and all is good.  However, neither Bob, nor Jill, nor anyone else
+will be able to push a new change without addressing the situation by hand;
+most likely, they will need an expert to rectify the situation.
+
+We explored some options to address this, such as pushing branches in order,
+but they all fell short.  In fact, this situation does not require a race: if a
+user simply aborts the overall push after some sub-repo branches have been
+updated but before the meta-repo has been, a similar state will be achieved.
