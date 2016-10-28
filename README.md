@@ -299,9 +299,9 @@ sub-repo URLs automatically redirect to the single sub-repo URL.
 
 In this section, we describe our original (naive) branch collaboration strategy
 and some problems it created.  Then we describe the *synthetic-meta-ref*, and
-show how it provides a solution to the previously mentioned collaboration
-problems.  Finally, we explore the ramifications of our synthetic-meta-ref
-strategy on tooling, performance, and offline workflows.
+show how it provides a solution to the these collaboration problems.  Finally,
+we explore the ramifications of our synthetic-meta-ref strategy on tooling,
+performance, and offline workflows.
 
 #### Naive Collaboration Strategy
 
@@ -411,12 +411,12 @@ remote
 `---------------------`  `--------`  `--------`
 ```
 
-If Bob pushes first, the result will be the state described above.  If Jill
-pushes after Bob, her sub-repo pushes (neither of which are fast-forwardable)
-will fail, and her meta-repo push will be rejected (though her client should
-not attempt it anyway).  This is an expected scenario.  But what if they go at
-the same time; Bob's push to `a` and Jill's push to `b` succeed, while Bob's
-push to `b`, and Jill's push to `a` fail:
+If Bob pushes first, the result will be the state described in the previous
+diagram.  If Jill pushes after Bob, her sub-repo pushes (neither of which are
+fast-forwardable) will fail, and her meta-repo push will be rejected (though
+her client should not attempt it anyway).  This is the expected scenario.  But
+what if they go at the same time? Say that Bob's push to `a` and Jill's push to
+`b` succeed, while Bob's push to `b`, and Jill's push to `a` fail:
 
 ```
 Bob's local                       Jill's local
@@ -443,3 +443,54 @@ We explored some options to address this, such as pushing branches in order,
 but they all fell short.  In fact, this situation does not require a race: if a
 user simply aborts the overall push after some sub-repo branches have been
 updated but before the meta-repo has been, a similar state will be achieved.
+
+#### Force Pushing
+
+Force-pushing in sub-modules can easily cause meta-repo commits to become
+invalid by making it impossible to fetch the sub-repo commits they reference
+(and eventually allowing them to be garbage collected).  While we expect
+"important" branches to be protected against force-pushing, it's a very common
+and useful practice in general.
+
+#### Fork Frenzy
+
+Our original strategy made sub-repo ref names significant and required.
+Therefore, the strategy implied that sub-repo names would be partitioned (so
+all users wouldn't have to see each others' branch names).  If forks are used
+as a name-partitioning strategy, this requirement would mean that forking the
+mono-repo meant forking the meta-repo and every sub-repo.  That alone might be
+difficult and expensive, but an extra complication would have been the need to
+go back and add to existing forks new repositories as they were created.
+
+#### Remote Frenzy
+
+Name-partitions -- whether git-namespaces or forks -- are handled locally
+through remotes.  Bob, for example, might have an origin for the "main"
+meta-repo and one for Jill's fork.  If sub-repos are name-partitioned, then
+locally-opened sub-repos must also have multiple remotes, e.g., one for the
+"main" meta-repo and one for Jill's fork.
+
+We discussed several possible solutions for handling remotes.  The most
+workable solution would have been to build logic into our tooling to keep the
+remotes in the meta-repo and all sub-repos synchronized:
+
+- Whenever a remote is added, it is added to the meta-repo and all open
+  sub-repos.
+- Whenever a remote is removed it is removed from all repos.
+- Whenever a sub-repo is opened, all remotes must be added to it and fetched.
+- Whenever a fetch occurs, it is executed for all remotes in all open
+  sub-repos.
+
+Thus, when switching to a branch or commit in the meta-repo, one could be
+guaranteed that the commits and refs for all remotes were present.
+Unfortunately, besides being complex, this solution has two serious drawbacks:
+
+- Users may reasonably desire to manipulate remotes using straight Git,
+  bypassing our tools, and easily invalidating our invariants.
+- Developers will naturally add remotes for the forks of other developers that
+  they collaborate with.  The requirement to fetch every remote in every
+  sub-repo (even if done in parallel) could cause performance problems.
+
+#### Enter syntetic-meta-refs
+
+A *synthetic-meta-ref*
