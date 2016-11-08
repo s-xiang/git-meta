@@ -60,8 +60,7 @@ is worth solving and why there are no existing solutions.
 
 The next section presents our architecture for implementing a mono-repo using
 Git submodules.  We describe the overall repository structure, solutions to
-collaboration problems, name-partitioning strategies, and server-side
-validations.
+collaboration problems, forking strategies, and server-side validations.
 
 Finally, we discuss the two types of tools provided by this project to support
 the proposed architecture: programs intended to be run as server-side commit
@@ -150,9 +149,9 @@ desired functionality leveraging existing Git commands.
 
 In this section, we first provide an overview of the mono-repo. We describe its
 structure, basic concerns such as commits, and performance.  Next, we discuss
-ref name partitioning.  Then, we describe *synthetic-meta-refs* and the
-problems they solve.  Finally, we describe integrity validations that must be
-performed in server-side checks.
+forking.  Then, we describe *synthetic-meta-refs* and the problems they solve.
+Finally, we describe integrity validations that must be performed in
+server-side checks.
 
 ### Overview
 
@@ -276,13 +275,39 @@ minimized through several strategies:
   git-meta, we are developing a proposal to address this case and will link to
   it here when ready.
 
-### Name-partitioning
+### Forking
 
-Git-meta works with a single meta-repo namespace, but we strongly recommend the
-use of a name-partitioning strategy, generally either *forks* or [Git
-namespaces](https://git-scm.com/docs/gitnamespaces).  Otherwise, every user
-will receive every branch in existence on every fetch/clone, causing
-significant performance problems over time.
+It is possible to use git-meta with a single meta-repo namespace, but we
+strongly recommend the use of a name-partitioning strategy, a.k.a. forking.
+Forking may be generally be implemented either via [Git
+namespaces](https://git-scm.com/docs/gitnamespaces) or a
+hosting-solution-specific forking mechanism.  Without forking, every user will
+receive every branch in existence on every fetch/clone, causing significant
+performance problems, especially over time.
+
+We fork only the meta-repo.  That is, for a given mono-repo, there may be any
+number of peer forks of the meta-repo on the back-end (though policy will
+generally designate that some meta-repos are special), but only one instance of
+each sub-repo:
+
+```
+'-----------` '-----------`
+|     a     | |     b     |
+`-----------, `-----------,
+   ^     ^      ^      ^
+   |     |      |      |
+   |     |     /       |
+   |     |    /        |
+   |      `--|---.     |
+   |         |   |     |
+   |     .--/    |     |
+   |     |       |     |
+'--|-----|--` '--|-----|--`
+|  a     b  | |  a     b  |
+| - - - - - | | - - - - - |
+| jill/meta | | bill/meta |
+`-----------, `-----------,
+```
 
 You must partition the namespace (through whichever method) in only the
 meta-repo.  Partitions are unnecessary in sub-repos; as mentioned above,
@@ -295,6 +320,13 @@ discussed in more detail under the Synthetic-Meta-Refs section).
 To prevent name partitionnig in sub-repos, you must either add sub-repos
 with absolute URLs, or configure your server-side environment so that forked
 sub-repo URLs automatically redirect to the single sub-repo URL.
+
+In the remainder of this document we refer to partitions simply as "forks" for
+simplicity and due to the prevalence of that term.
+
+To summarize, forking a mono-repo means forking the meta-repo of the mono-repo.
+We never fork sub-repos, 
+
 
 ### Synthetic-Meta-Refs
 
@@ -377,11 +409,11 @@ error: master ref in sub-repo a does not point to commit a2
 error: master ref in sub-repo b does not point to commit b2
 ```
 
-Sub-repo partitioning would follow meta-repo partitioning.  We created the term
-*orchard* to describe a meta-repo and its associated collection of sub-repos.
-When a user "forked" an orchard, it would create a new, _peer_ orchard,
-modeling the peer-to-peer aspects of normal Git repositories.  A project named
-"foo" might have an orchard configured as:
+Sub-repo forking would follow meta-repo forking.  We created the term *orchard*
+to describe a meta-repo and its associated collection of sub-repo forks.  When
+a user "forked" an orchard, it would create a new, _peer_ orchard, modeling the
+peer-to-peer aspects of normal Git repositories.  A project named "foo" might
+have an orchard configured as:
 
 ```
 '---------------------`  '--------`  '--------`
@@ -540,11 +572,11 @@ concept -- a set of related orchards -- that undermines our peer-to-peer model.
 
 ##### Remote Frenzy
 
-Name-partitions -- whether git-namespaces or forks -- are handled locally
-through remotes.  Bob, for example, might have an origin for the "main"
-meta-repo and one for Jill's fork.  The following diagram indicates that Bob
-has added Jill's fork under the origin named "jill", and has pointed his
-checked-out `master` branch at the same commit as her `master` branch: `j2`.
+As is normal in Git, different forks are handled locally through remotes.  Bob,
+for example, might have an origin for the "main" meta-repo and one for Jill's
+fork.  The following diagram indicates that Bob has added Jill's fork under the
+origin named "jill", and has pointed his checked-out `master` branch at the
+same commit as her `master` branch: `j2`.
 
 ```
 '-------------`
@@ -656,12 +688,16 @@ longer have any knowledge that Jill's fork exists.
 
 #### Enter syntetic-meta-refs
 
-In this section, we define the term *synthetic-meta-ref*, and explain how they
-are used to solve the problem of collaboration in mono-repos.  We also present
-two variations on the strategy we have chosen.
+In this section, we define the term *synthetic-meta-ref* and describe how
+synthetic-meta-refs are used in our mono-repo ref strategy.  Then, we explain
+how this strategy solves the collaboration problems discussed earlier.
+Finally, we present to variations on our strategy that we did not use, but that
+could prove useful and/or informative.
+
+##### Definition
 
 A synthetic-meta-ref is a ref in a sub-repo in a specific form, most notably
-including the ID of a git-commit in its name, such as:
+including the ID of the Git commit to which it points in its name, such as:
 `refs/meta/929e8afc03fef8d64249ad189341a4e8889561d7`.  The term is derived
 from the fact that such a ref is:
 
@@ -669,6 +705,8 @@ from the fact that such a ref is:
 1. _meta_ -- identifying a commit in a sub-repo that is (directly or
    indirectly) referenced by a commit in the meta-repo
 1. _ref_ -- just a ref, not a branch or tag
+
+
 
 
 ##### As fetch targets
