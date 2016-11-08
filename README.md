@@ -328,7 +328,7 @@ sub-repos, then from the meta-repo.
 local
 '---------------------------------`
 | meta-repo  |                    |
-| master     | a *master [a2->a1] |
+| *master    | a *master [a2->a1] |
 | [m2->m1]   | b *master [b2->b1] |
 `---------------------------------,
 
@@ -406,73 +406,11 @@ problems:
 
 ##### Race conditions on collaboration branches
 
-Git does not provide for atomic cross-repository operations.  So, our plan had
-been to implement push such that we updated affected sub-repo branches first,
-then the meta-repo branch.  Furthermore, we would provide server-side
-validation to reject attempts to update a meta-repo branch to a commit
-contradicting the state of the corresponding sub-repo branch.
-
-Given the following scenario, where a user has new (local) changes on `master`
-in two repositories, `a` and `b`:
-
-```
-local
-'-------------------------`
-| meta-repo  |            |
-| master     | a [a2->a1] |
-| [m2->m1]   | b [b2->b1] |
-`-------------------------,
-
-remote
-'---------------------`  '--------`  '--------`
-| meta-repo  |        |  | a      |  | b      |
-| master     | a [a1] |  | master |  | master |
-| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
-`---------------------,  `--------,  `--------,
-```
-
-If the user were to attempt to push `master` in the meta-repo without pushing
-the changes in `a` and `b` first, we would reject the change.  Using our
-recommended (tool-supported) method, `a` and `b` would have been pushed first
-(in parallel), leaving the world in this state for some period in time:
-
-```
-local
-'-------------------------`
-| meta-repo  |            |
-| master     | a [a2->a1] |
-| [m2->m1]   | b [b2->b1] |
-`-------------------------,
-
-remote
-'---------------------`  '----------`  '----------`
-| meta-repo  |        |  | a        |  | b        |
-| master     | a [a1] |  | master   |  | master   |
-| [m1]       | b [b2] |  | [a2->a1] |  | [b2->b1] |
-`---------------------,  `----------,  `----------,
-```
-
-Until the meta-repo push lands:
-
-```
-local
-'-------------------------`
-| meta-repo  |            |
-| master     | a [a2->a1] |
-| [m2->m1]   | b [b2->b1] |
-`-------------------------,
-
-remote
-'---------------------`  '----------`  '----------`
-| meta-repo  |        |  | a        |  | b        |
-| master     | a [a1] |  | master   |  | master   |
-| [m2-m1]    | b [b2] |  | [a2->a1] |  | [b2->b1] |
-`---------------------,  `----------,  `----------,
-```
-
-Through this method, we could prevent logical corruption of the meta-repo with
-our check (unless force pushes are allowed in the sub-repos, but that could
-easily be disallowed).
+Git does not provide for atomic cross-repository operations.  So, as described
+above, our plan had been to implement push such that we updated affected
+sub-repo branches first, then the meta-repo branch.  Furthermore, we would
+provide server-side validation to reject attempts to update a meta-repo branch
+to a commit contradicting the state of the corresponding sub-repo branch.
 
 Unfortunately, this strategy suffers from a potential race condition that could
 put a branch in the meta-repo into a state such that it could no longer be
@@ -534,7 +472,7 @@ Force-pushing in sub-modules can easily cause meta-repo commits to become
 invalid by making it impossible to fetch the sub-repo commits they reference,
 and eventually allowing them to be garbage collected.  While we expect
 "important" branches to be protected against force-pushing, it's a very common
-and useful practice in general.
+and useful practice in general, even on branches used for collaboration.
 
 ```
 '---------------------`  '----------`
@@ -558,52 +496,121 @@ git push -f a-origin a1:master
 
 ##### Fork Frenzy
 
-Our original strategy made sub-repo ref names significant and required.
-Therefore, the strategy implied that sub-repo names would be partitioned (so
-all users wouldn't have to see each others' branch names).  To aid in
-discussing this strategy
-
-
-If forks are used
-as a name-partitioning strategy, this requirement would mean that forking the
-mono-repo meant forking the meta-repo and every sub-repo.  We 
-; all those extra forks
-might be prohibitively expensive.  Furthermore,  when new sub-repos are
-created, existing "logical" forks must be updated with new sub-repo forks.
+Generating a new repository for each sub-repo when a forked orchard is created
+could be expensive if the number of sub-repos is large.   Furthermore, what
+happens when new sub-repos are added? Take the earlier example:
 
 ```
-`-----------------
-'-----------' 
-| meta-repo |
-`-----------,
+'---------------------`  '--------`  '--------`
+| foo/meta-repo       |  | foo/a  |  | foo/b  |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+
+'---------------------`  '--------`  '--------`
+| jill/meta-repo      |  | jill/a |  | jill/b |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+Now, if a new repository, `c`, is added we have:
 
 ```
+'---------------------`  '--------`  '--------` '--------`
+| foo/meta-repo       |  | foo/a  |  | foo/b  | | foo/c  |
+| master     | a [a1] |  | master |  | master | | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   | | [b1]   |
+`---------------------,  `--------,  `--------, `--------,
+
+'---------------------`  '--------`  '--------`
+| jill/meta-repo      |  | jill/a |  | jill/b |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+We could have an automated task that would detect the creation of new
+repositories and auto-fork them, but when?  To allow for collaboration, we
+would most likely need to perform the auto-fork whenever a new repository is
+created, likely a very expensive operation for a potentially speculative
+operation.  The existence of these forks could be confusing, at best, if the
+when repositories are abandoned.  At the very least, we have created a new
+concept -- a set of related orchards -- that undermines our peer-to-peer model.
 
 ##### Remote Frenzy
 
 Name-partitions -- whether git-namespaces or forks -- are handled locally
 through remotes.  Bob, for example, might have an origin for the "main"
-meta-repo and one for Jill's fork.  If sub-repos are name-partitioned, then
-locally-opened sub-repos must also have multiple remotes, e.g., one for the
-"main" meta-repo and one for Jill's fork.
+meta-repo and one for Jill's fork.  The following diagram indicates that Bob
+has added Jill's fork under the origin named "jill", and has pointed his
+checked-out `master` branch at the same commit as her `master` branch: `j2`.
 
-We discussed several possible solutions for handling remotes.  The most
-workable solution would have been to build logic into our tooling to keep the
-remotes in the meta-repo and all sub-repos synchronized:
+```
+'-------------`
+| meta-repo   |
+| - - - - - - |
+| origin      |
+|   master    |
+|    [m1]     |
+| jill        |
+|   master    |
+|    [j2->m1] |
+| - - - - - - |
+| *master     |
+|   [j2]      |
+`-------------,
+```
 
-- Whenever a remote is added, it is added to the meta-repo and all open
-  sub-repos.
-- Whenever a remote is removed it is removed from all repos.
-- Whenever a sub-repo is opened, all remotes must be added to it and fetched.
-- Whenever a fetch occurs, it is executed for all remotes in all open
-  sub-repos.
+If Bob attempts to open the submodule `a` in the normal manner, he will get an
+error such as:
 
-Thus, when switching to a branch or commit in the meta-repo, one could be
-guaranteed that the commits and refs for all remotes were present.
-Unfortunately, besides being complex, this solution has two serious drawbacks:
+```bash
+$ cd meta
+$ git submodule update --init a
+Submodule 'a' (http://a) registered for path 'a'
+Cloning into 'a'...
+done.
+fatal: reference is not a tree: j2
+Unable to checkout 'js' in submodule path
+'a'
+```
+
+This error happens because the default behavior of `submodule update --init` is
+to fetch refs from the url with which that submodule was created: there can be
+only one such origin.  As will be seen later, working effectively with
+submodules requires much tooling support, so we can easily add our own `open`
+operation that will configure submodules with all known origins (and fetch them
+all), e.g.:
+
+```bash
+$ git meta open a
+```
+
+```
+'----------------------------`
+| meta-repo   | a            |
+| - - - - - - | - - - - - - -|
+| origin      | origin       |
+|   master    |  master      |
+|    [m1]     |   [a1]       |
+| jill        | jill         |
+|   master    |  master      |
+|    [j2->m1] |   [ja2->a1]  |
+| - - - - - - | - - - - - -  |
+| *master     | *master      |
+|   [j2]      |   [ja2]      |
+`----------------------------,
+```
+
+We would also need to add our own versions of commands for, e.g., adding,
+removing, and fetching remotes that would add, remove, and fetch the same
+remotes in open sub-repos.  Unfortunately, besides being complex, this solution
+has serious drawbacks:
 
 - Users may reasonably desire to manipulate remotes using straight Git,
-  bypassing our tools, and easily invalidating our invariants.
+  bypassing our tools, invalidating our invariants, and creating difficult to
+  diagnose and repair situations.
 - Developers will naturally add remotes for the forks of other developers that
   they collaborate with.  The requirement to fetch every remote in every
   sub-repo (even if done in parallel) could cause performance problems.
@@ -611,7 +618,28 @@ Unfortunately, besides being complex, this solution has two serious drawbacks:
   difficult-to-recover-from situations.  For example, if a developer makes a
   local branch from a remote branch, then removes the remote from which that
   branch came, they may not be able to find the needed commits when opening
-  sub-repos.
+  sub-repos:
+
+```
+'-------------`
+| meta-repo   |
+| - - - - - - |
+| origin      |
+|   master    |
+|    [m1]     |
+| jill        |
+|   master    |
+|    [j2->m1] |
+| - - - - - - |
+| *master     |
+|   [j2]      |
+`-------------,
+```
+
+```bash
+$ git meta remote rm jill
+$ git meta open a
+```
 
 #### Enter syntetic-meta-refs
 
