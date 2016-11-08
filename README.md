@@ -568,11 +568,8 @@ error such as:
 ```bash
 $ cd meta
 $ git submodule update --init a
-Submodule 'a' (http://a) registered for path 'a'
-Cloning into 'a'...
-done.
 fatal: reference is not a tree: j2
-Unable to checkout 'js' in submodule path
+Unable to checkout 'j2' in submodule path
 'a'
 ```
 
@@ -638,8 +635,24 @@ has serious drawbacks:
 
 ```bash
 $ git meta remote rm jill
-$ git meta open a
 ```
+
+```
+'-------------`
+| meta-repo   |
+| - - - - - - |
+| origin      |
+|   master    |
+|    [m1]     |
+| - - - - - - |
+| *master     |
+|   [j2]      |
+`-------------,
+```
+
+Now even `git meta open` will be unable to initialize the submodule `a` because
+Bob's `master` branch references a commit in it that cannot be found; we no
+longer have any knowledge that Jill's fork exists.
 
 #### Enter syntetic-meta-refs
 
