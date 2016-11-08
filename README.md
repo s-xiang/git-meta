@@ -295,13 +295,10 @@ each sub-repo:
 |     a     | |     b     |
 `-----------, `-----------,
    ^     ^      ^      ^
-   |     |      |      |
    |     |     /       |
    |     |    /        |
-   |      `--|---.     |
-   |         |   |     |
+   |      `--.---.     |
    |     .--/    |     |
-   |     |       |     |
 '--|-----|--` '--|-----|--`
 |  a     b  | |  a     b  |
 | - - - - - | | - - - - - |
@@ -309,23 +306,16 @@ each sub-repo:
 `-----------, `-----------,
 ```
 
-You must partition the namespace (through whichever method) in only the
-meta-repo.  Partitions are unnecessary in sub-repos; as mentioned above,
-git-meta does not interact with sub-repo ref names.  Furthermore, paritions
-(whether forks or namespaces) are managed via remotes.  Managing and
-synchronizing between the sets of remotes in the meta-repo and open sub-repos
-would be complicated, error-prone, and confusing to users (this problem is
-discussed in more detail under the Synthetic-Meta-Refs section).
+Further, any clone of any meta-repo (even a local one) will still reference the
+same canonical sub-repos.  Thus, a mono-repo is not truly distributed like
+single Git repositories.  Since mono-repos are designed to facilitate
+source management in large organizations, and the individual repos of which
+they are composed are still normal, distributed, Git repos (e.g., two
+distinct mono-repos may contain sub-repos with the same histories), we consider
+this to be acceptable.
 
-To prevent name partitionnig in sub-repos, you must either add sub-repos
-with absolute URLs, or configure your server-side environment so that forked
-sub-repo URLs automatically redirect to the single sub-repo URL.
-
-In the remainder of this document we refer to partitions simply as "forks" for
-simplicity and due to the prevalence of that term.
-
-To summarize, forking a mono-repo means forking the meta-repo of the mono-repo.
-We never fork sub-repos, 
+A full explanation of how we arrived at this model is given in the next
+section.
 
 
 ### Synthetic-Meta-Refs
