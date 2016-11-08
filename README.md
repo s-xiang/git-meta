@@ -306,17 +306,21 @@ each sub-repo:
 `-----------, `-----------,
 ```
 
-Further, any clone of any meta-repo (even a local one) will still reference the
-same canonical sub-repos.  Thus, a mono-repo is not truly distributed like
-single Git repositories.  Since mono-repos are designed to facilitate
-source management in large organizations, and the individual repos of which
-they are composed are still normal, distributed, Git repos (e.g., two
-distinct mono-repos may contain sub-repos with the same histories), we consider
-this to be acceptable.
+Any clone of any meta-repo (even a local one) will still reference the same
+canonical sub-repos.  Thus, a mono-repo is not truly distributed like single
+Git repositories.  We consider this to be acceptable for the following reasons:
 
-A full explanation of how we arrived at this model is given in the next
-section.
-
+- Mono-repos are designed to facilitate source management in large
+  organizations, which generally nominate canonical repositories for
+  integration anyway.
+- The individual repos of which they are composed are still normal,
+  distributed, Git repos (e.g., two distinct mono-repos may contain sub-repos
+  with the same histories).
+- As will be described in the next section on synthetic-meta-refs, workflows
+  involving forked sub-repos have significant drawbacks.
+- One of the main benefits of DVCSs -- the ability to have a first-class
+  development experience without network connectivity to the server -- is still
+  possible, as we explain in the section on "Offline Workflows".
 
 ### Synthetic-Meta-Refs
 
