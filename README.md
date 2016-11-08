@@ -310,14 +310,52 @@ Our original collaboration strategy was fairly simple:
 
 1. The meta-repo and open sub-repos would generally be on the same checked-out
    branch.
-1. When pushing a ref, we would first push the ref with that name from open
+
+```
+local
+'-----------------------------`
+| meta-repo  |                |
+| master     | a *master [a1] |
+| [m1]       | b *master [b1] |
+`-----------------------------,
+```
+
+2. When pushing a ref, we would first push the ref with that name from open
    sub-repos, then from the meta-repo.
+
+```
+local
+'---------------------------------`
+| meta-repo  |                    |
+| master     | a *master [a2->a1] |
+| [m2->m1]   | b *master [b2->b1] |
+`---------------------------------,
+
+remote
+'---------------------`  '--------`  '--------`
+| meta-repo  |        |  | a      |  | b      |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+```bash
+cd a
+git push origin master
+cd ../b
+git push origin master
+cd ..
+git push origin master
+```
+
+
 1. When landing pull-requests or doing other server-side validations, we would
    check that for a given meta-repo branch, we had corresponding valid
    sub-repo branches of the same name.
 1. Sub-repo partitioning would follow meta-repo partitioning; for example, when
    a user "forked" the mono-repo, user-specific forks would be created for the
    meta-repo and each sub-repo.
+1. 
 
 This model created several problems:
 
@@ -477,15 +515,22 @@ git push -f a-origin a1:master
 
 Our original strategy made sub-repo ref names significant and required.
 Therefore, the strategy implied that sub-repo names would be partitioned (so
-all users wouldn't have to see each others' branch names).  If forks are used
+all users wouldn't have to see each others' branch names).  To aid in
+discussing this strategy
+
+
+If forks are used
 as a name-partitioning strategy, this requirement would mean that forking the
-mono-repo meant forking the meta-repo and every sub-repo; all those extra forks
+mono-repo meant forking the meta-repo and every sub-repo.  We 
+; all those extra forks
 might be prohibitively expensive.  Furthermore,  when new sub-repos are
 created, existing "logical" forks must be updated with new sub-repo forks.
 
 ```
-
-
+`-----------------
+'-----------' 
+| meta-repo |
+`-----------,
 
 ```
 
