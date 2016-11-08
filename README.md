@@ -289,7 +289,8 @@ meta-repo.  Partitions are unnecessary in sub-repos; as mentioned above,
 git-meta does not interact with sub-repo ref names.  Furthermore, paritions
 (whether forks or namespaces) are managed via remotes.  Managing and
 synchronizing between the sets of remotes in the meta-repo and open sub-repos
-would be complicated, error-prone, and confusing to users.
+would be complicated, error-prone, and confusing to users (this problem is
+discussed in more detail under the Synthetic-Meta-Refs section).
 
 To prevent name partitionnig in sub-repos, you must either add sub-repos
 with absolute URLs, or configure your server-side environment so that forked
@@ -337,14 +338,14 @@ local
 | meta-repo  |            |
 | master     | a [a2->a1] |
 | [m2->m1]   | b [b2->b1] |
-`-------------------------`
+`-------------------------,
 
 remote
 '---------------------`  '--------`  '--------`
 | meta-repo  |        |  | a      |  | b      |
 | master     | a [a1] |  | master |  | master |
 | [m1]       | b [b2] |  | [a1]   |  | [b1]   |
-`---------------------`  `--------`  `--------`
+`---------------------,  `--------,  `--------,
 ```
 
 If the user were to attempt to push `master` in the meta-repo without pushing
@@ -358,14 +359,14 @@ local
 | meta-repo  |            |
 | master     | a [a2->a1] |
 | [m2->m1]   | b [b2->b1] |
-`-------------------------`
+`-------------------------,
 
 remote
 '---------------------`  '----------`  '----------`
 | meta-repo  |        |  | a        |  | b        |
 | master     | a [a1] |  | master   |  | master   |
 | [m1]       | b [b2] |  | [a2->a1] |  | [b2->b1] |
-`---------------------`  `----------`  `----------`
+`---------------------,  `----------,  `----------,
 ```
 
 Until the meta-repo push lands:
@@ -376,14 +377,14 @@ local
 | meta-repo  |            |
 | master     | a [a2->a1] |
 | [m2->m1]   | b [b2->b1] |
-`-------------------------`
+`-------------------------,
 
 remote
 '---------------------`  '----------`  '----------`
 | meta-repo  |        |  | a        |  | b        |
 | master     | a [a1] |  | master   |  | master   |
 | [m2-m1]    | b [b2] |  | [a2->a1] |  | [b2->b1] |
-`---------------------`  `----------`  `----------`
+`---------------------,  `----------,  `----------,
 ```
 
 Through this method, we could prevent logical corruption of the meta-repo with
@@ -401,14 +402,14 @@ Bob's local                       Jill's local
 | meta-repo  |            |       | meta-repo  |            |
 | master     | a [a2->a1] |       | master     | a [a3->a1] |
 | [m2->m1]   | b [b2->b1] |       | [m3->m1]   | b [b3->b1] |
-`-------------------------`       `-------------------------`
+`-------------------------,       `-------------------------,
 
 remote
 '---------------------`  '--------`  '--------`
 | meta-repo  |        |  | a      |  | b      |
 | master     | a [a1] |  | master |  | master |
 | [m1]       | b [b2] |  | [a1]   |  | [b1]   |
-`---------------------`  `--------`  `--------`
+`---------------------,  `--------,  `--------,
 ```
 
 If Bob pushes first, the result will be the state described in the previous
@@ -424,14 +425,14 @@ Bob's local                       Jill's local
 | meta-repo  |            |       | meta-repo  |            |
 | master     | a [a2->a1] |       | master     | a [a3->a1] |
 | [m2->m1]   | b [b2->b1] |       | [m3->m1]   | b [b3->b1] |
-`-------------------------`       `-------------------------`
+`-------------------------,       `-------------------------,
 
 remote
 '---------------------`  '----------`  '----------`
 | meta-repo  |        |  | a        |  | b        |
 | master     | a [a1] |  | master   |  | master   |
 | [m2-m1]    | b [b2] |  | [a2->a1] |  | [b3->b1] |
-`---------------------`  `----------`  `----------`
+`---------------------,  `----------,  `----------,
 ```
 
 Now, the remote meta-repo is technically in a valid state: users can clone it
@@ -444,7 +445,7 @@ but they all fell short.  In fact, this situation does not require a race: if a
 user simply aborts the overall push after some sub-repo branches have been
 updated but before the meta-repo has been, a similar state will be achieved.
 
-#### Force Pushing
+##### Force Pushing
 
 Force-pushing in sub-modules can easily cause meta-repo commits to become
 invalid by making it impossible to fetch the sub-repo commits they reference
@@ -452,17 +453,18 @@ invalid by making it impossible to fetch the sub-repo commits they reference
 "important" branches to be protected against force-pushing, it's a very common
 and useful practice in general.
 
-#### Fork Frenzy
+##### Fork Frenzy
 
 Our original strategy made sub-repo ref names significant and required.
 Therefore, the strategy implied that sub-repo names would be partitioned (so
 all users wouldn't have to see each others' branch names).  If forks are used
 as a name-partitioning strategy, this requirement would mean that forking the
-mono-repo meant forking the meta-repo and every sub-repo.  That alone might be
-difficult and expensive, but an extra complication would have been the need to
-go back and add to existing forks new repositories as they were created.
+mono-repo meant forking the meta-repo and every sub-repo; all those extra forks
+might be prohibitively expensive.  Furthermore, it implies an extra
+complication: when new sub-repos are created, existing "logical" forks must be
+updated with new sub-repo forks.
 
-#### Remote Frenzy
+##### Remote Frenzy
 
 Name-partitions -- whether git-namespaces or forks -- are handled locally
 through remotes.  Bob, for example, might have an origin for the "main"
@@ -490,7 +492,50 @@ Unfortunately, besides being complex, this solution has two serious drawbacks:
 - Developers will naturally add remotes for the forks of other developers that
   they collaborate with.  The requirement to fetch every remote in every
   sub-repo (even if done in parallel) could cause performance problems.
+- Even using our tools as designed, developers may easily create invalid,
+  difficult-to-recover-from situations.  For example, if a developer makes a
+  local branch from a remote branch, then removes the remote from which that
+  branch came, they may not be able to find the needed commits when opening
+  sub-repos.
 
 #### Enter syntetic-meta-refs
 
-A *synthetic-meta-ref*
+In this section, we define the term *synthetic-meta-ref*, and explain how they
+are used to solve the problem of collaboration in mono-repos.  We also present
+two variations on the strategy we have chosen.
+
+A synthetic-meta-ref is a ref in a sub-repo in a specific form, most notably
+including the ID of a git-commit in its name, such as:
+`refs/meta/929e8afc03fef8d64249ad189341a4e8889561d7`.  The term is derived
+from the fact that such a ref:
+
+1. _synthetic_ -- is usually generated by a tool
+1. _meta_ -- identifies a commit in a sub-repo that is (directly or indirectly)
+   referenced by a commit in the meta-repo
+1. _ref_ -- just a ref, not a branch or tag
+
+
+##### As fetch targets
+
+As it is not possible to directly fetch a commit by its sha1 in earlier
+versions of Git, our first proposal for synthetic-meta-refs had the invariant
+that every commit in a sub-repo that is directly referenced by a commit in any
+meta-repo fork have a synthetic-meta-ref associated with it.
+
+This invariant would have been expensive to satisfy on the client.  We don't
+generally know which commits have meta-refs associated with them, and even if
+we did, there might be cases where we would genuinely need to create large
+numbers of them: such as when importing an existing repository.
+
+Some of the cost might have been reduced by generating the refs in server-side
+hooks, but we have otherwise been able to restrict our server-side hooks to
+read-only operations.
+
+##### Mega-ref
+
+Another strategy would be to maintain a *mega-ref* in each sub-repo.  The
+mega-ref is a ref through which all the commits in a sub-repo identified by all
+commits in all meta-repos can be reached.  Whenever a synthetic-meta-ref is
+pushed to a sub-repo, the mega-ref is rewritten to have the commit identified
+by the new synthetic-meta-ref if it does not already contain that commit in its
+history.
