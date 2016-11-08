@@ -59,14 +59,14 @@ are in this space.  In short, the first section should explain why this problem
 is worth solving and why there are no existing solutions.
 
 The next section presents our architecture for implementing a mono-repo using
-git submodules.  We describe the overall repository structure, solutions to
+Git submodules.  We describe the overall repository structure, solutions to
 collaboration problems, name-partitioning strategies, and server-side
 validations.
 
 Finally, we discuss the two types of tools provided by this project to support
 the proposed architecture: programs intended to be run as server-side commit
 hooks to maintain git-meta invariants and repository integrity; and a program
-intended to be used as a git plugin on the client that simplifies interactions
+intended to be used as a Git plugin on the client that simplifies interactions
 with submodules (e.g., by providing a submodule-aware `merge` operation), and
 implements other mono-repo-aware functionality.
 
@@ -118,7 +118,7 @@ status`, `git fetch`, etc. become slow enough that developers, given the
 opportunity, will begin splitting code into multiple repositories.
 
 We discuss the architecture of git-meta in more detail in the next section, but
-essentially it provides a way to use standard git operations across many
+essentially it provides a way to use standard Git operations across many
 repositories.  Before starting on git-meta, we did investigate several existing
 products that take a similar approach:
 
@@ -160,7 +160,7 @@ performed in server-side checks.
 
 Git-meta creates a logical mono-repo out of multiple *sub-repositories* (a.k.a.
 sub-repo) by tying them together in a *meta-repository* (a.k.a. meta-repo) with
-Git submodules.  Recall that a git submodule consists of the following:
+Git submodules.  Recall that a Git submodule consists of the following:
 
 1. a path at which to root the submodule in the referencing (meta) repository
 1. the url of the referenced (sub) repository
@@ -279,7 +279,7 @@ minimized through several strategies:
 ### Name-partitioning
 
 Git-meta works with a single meta-repo namespace, but we strongly recommend the
-use of a name-partitioning strategy, generally either *forks* or [git
+use of a name-partitioning strategy, generally either *forks* or [Git
 namespaces](https://git-scm.com/docs/gitnamespaces).  Otherwise, every user
 will receive every branch in existence on every fetch/clone, causing
 significant performance problems over time.
@@ -431,7 +431,7 @@ remote
 '---------------------`  '----------`  '----------`
 | meta-repo  |        |  | a        |  | b        |
 | master     | a [a1] |  | master   |  | master   |
-| [m2-m1]    | b [b2] |  | [a2->a1] |  | [b3->b1] |
+| [m2->m1]   | b [b2] |  | [a2->a1] |  | [b3->b1] |
 `---------------------,  `----------,  `----------,
 ```
 
@@ -448,10 +448,30 @@ updated but before the meta-repo has been, a similar state will be achieved.
 ##### Force Pushing
 
 Force-pushing in sub-modules can easily cause meta-repo commits to become
-invalid by making it impossible to fetch the sub-repo commits they reference
-(and eventually allowing them to be garbage collected).  While we expect
+invalid by making it impossible to fetch the sub-repo commits they reference,
+and eventually allowing them to be garbage collected.  While we expect
 "important" branches to be protected against force-pushing, it's a very common
 and useful practice in general.
+
+```
+'---------------------`  '----------`
+| meta-repo  |        |  | a        |
+| master     | a [a2] |  | master   |
+| [m1]       |        |  | [a2->a1] |
+`---------------------,  `----------,
+```
+
+```bash
+git push -f a-origin a1:master
+```
+
+```
+'---------------------`  '----------`
+| meta-repo  |        |  | a        |
+| master     | a [a2] |  | master   |
+| [m1]       |        |  | [a1]     |
+`---------------------,  `----------,
+```
 
 ##### Fork Frenzy
 
@@ -460,9 +480,14 @@ Therefore, the strategy implied that sub-repo names would be partitioned (so
 all users wouldn't have to see each others' branch names).  If forks are used
 as a name-partitioning strategy, this requirement would mean that forking the
 mono-repo meant forking the meta-repo and every sub-repo; all those extra forks
-might be prohibitively expensive.  Furthermore, it implies an extra
-complication: when new sub-repos are created, existing "logical" forks must be
-updated with new sub-repo forks.
+might be prohibitively expensive.  Furthermore,  when new sub-repos are
+created, existing "logical" forks must be updated with new sub-repo forks.
+
+```
+
+
+
+```
 
 ##### Remote Frenzy
 
