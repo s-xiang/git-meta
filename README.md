@@ -309,8 +309,8 @@ performance, and offline workflows.
 Our original collaboration strategy was simple; we attempted to mirror the
 normal, de-centralized model of Git as closely as possible:
 
-- The meta-repo and open sub-repos would generally be on the same checked-out
-  branch.
+The meta-repo and open sub-repos would generally be on the same checked-out
+branch.
 
 ```
 local
@@ -321,8 +321,8 @@ local
 `-----------------------------,
 ```
 
-- When pushing a ref, we would first push the ref with that name from open
-  sub-repos, then from the meta-repo.
+When pushing a ref, we would first push the ref with that name from open
+sub-repos, then from the meta-repo.
 
 ```
 local
@@ -350,9 +350,9 @@ $ cd ..
 $ git push origin master
 ```
 
-- When landing pull-requests or doing other server-side validations, we would
-  check that for a given meta-repo branch, we had corresponding valid sub-repo
-  branches of the same name.
+When landing pull-requests or doing other server-side validations, we would
+check that for a given meta-repo branch, we had corresponding valid sub-repo
+branches of the same name.
 
 ```
 local
