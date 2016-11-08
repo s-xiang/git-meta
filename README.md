@@ -306,22 +306,23 @@ performance, and offline workflows.
 
 #### Naive Collaboration Strategy
 
-Our original collaboration strategy was fairly simple:
+Our original collaboration strategy was simple; we attempted to mirror the
+normal, de-centralized model of Git as closely as possible:
 
-1. The meta-repo and open sub-repos would generally be on the same checked-out
-   branch.
+- The meta-repo and open sub-repos would generally be on the same checked-out
+  branch.
 
 ```
 local
 '-----------------------------`
 | meta-repo  |                |
-| master     | a *master [a1] |
+| *master    | a *master [a1] |
 | [m1]       | b *master [b1] |
 `-----------------------------,
 ```
 
-2. When pushing a ref, we would first push the ref with that name from open
-   sub-repos, then from the meta-repo.
+- When pushing a ref, we would first push the ref with that name from open
+  sub-repos, then from the meta-repo.
 
 ```
 local
@@ -340,24 +341,68 @@ remote
 ```
 
 ```bash
-cd a
-git push origin master
-cd ../b
-git push origin master
-cd ..
-git push origin master
+$ cd meta-repo
+$ cd a
+$ git push origin master
+$ cd ../b
+$ git push origin master
+$ cd ..
+$ git push origin master
 ```
 
+- When landing pull-requests or doing other server-side validations, we would
+  check that for a given meta-repo branch, we had corresponding valid sub-repo
+  branches of the same name.
 
-1. When landing pull-requests or doing other server-side validations, we would
-   check that for a given meta-repo branch, we had corresponding valid
-   sub-repo branches of the same name.
-1. Sub-repo partitioning would follow meta-repo partitioning; for example, when
-   a user "forked" the mono-repo, user-specific forks would be created for the
-   meta-repo and each sub-repo.
-1. 
+```
+local
+'---------------------------------`
+| meta-repo  |                    |
+| master     | a *master [a2->a1] |
+| [m2->m1]   | b *master [b2->b1] |
+`---------------------------------,
 
-This model created several problems:
+remote
+'---------------------`  '--------`  '--------`
+| meta-repo  |        |  | a      |  | b      |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+```bash
+$ cd meta-repo
+$ git push origin master
+error: master ref in sub-repo a does not point to commit a2
+error: master ref in sub-repo b does not point to commit b2
+```
+
+Sub-repo partitioning would follow meta-repo partitioning.  We created the term
+*orchard* to describe a meta-repo and its associated collection of sub-repos.
+When a user "forked" an orchard, it would create a new, _peer_ orchard,
+modeling the peer-to-peer aspects of normal Git repositories.  A project named
+"foo" might have an orchard configured as:
+
+```
+'---------------------`  '--------`  '--------`
+| foo/meta-repo       |  | foo/a  |  | foo/b  |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+If Jill were to fork foo, the result would be:
+
+```
+'---------------------`  '--------`  '--------`
+| jill/meta-repo      |  | jill/a |  | jill/b |
+| master     | a [a1] |  | master |  | master |
+| [m1]       | b [b2] |  | [a1]   |  | [b1]   |
+`---------------------,  `--------,  `--------,
+```
+
+Unfortunately, while this model was intuitive, it created several intractable
+problems:
 
 ##### Race conditions on collaboration branches
 
