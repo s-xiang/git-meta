@@ -56,7 +56,7 @@ A detailed description of the architecture of Git meta is provided in
 
 ## Installation
 
-To install the Git meta plugin:
+To install the git-meta plugin:
 
 ```bash
 $ git clone https://github.com/twosigma/git-meta.git
