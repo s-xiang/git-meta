@@ -319,7 +319,7 @@ are not practical.
 Therefore, ref names in git-meta always refer to refs in the meta-repo.
 Branches and tags in sub-repos are ignored by git-meta -- by server-side checks
 and by the client-side `git-meta` plugin.  You may choose to create branches or
-tags in sub-repos (for example to mirror significant branches and tags in a
+tags in sub-repos (for example, to mirror significant branches and tags in a
 meta-repo), but they will not affect git-meta.  The git-meta plugin will not
 push branches or tags in sub-repos when, e.g. the `git meta push` command is
 used.
@@ -350,9 +350,7 @@ A mono-repo has two invariants with respect to synthetic-meta-refs:
 
 1. Every synthetic-meta-ref must point to the commit identified by its name.
 1. Every commit in a sub-repo that is identified by a commit in any meta-repo
-   must be reachable by a synthetic-meta-ref.  Note that this requirement is
-   not to have a synthetic-meta-ref for each sub-repo commit (though we discuss
-   such a strategy later).
+   must be reachable by a synthetic-meta-ref.
 
 A some mono-repos in valid states:
 
