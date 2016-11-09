@@ -359,8 +359,7 @@ A some mono-repos in valid states:
 | meta-repo         |  |         a         |
 | - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1] |  | refs/meta/a1 [a1] |
-|   [m1]   |        |  `-------------------,
-`-------------------,
+`-------------------,  `-------------------,
 The 'master' branch in the meta-repo indicates commit 'a1' for repo 'a' and a
 valid synthetic-meta-ref exists.
 ```
