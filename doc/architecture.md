@@ -533,38 +533,6 @@ by the new synthetic-meta-ref if it does not already contain that commit in its
 history.  The downside of this approach is that the mega-ref references all
 commits, probably many more than what is needed at any given time.
 
-# Performance
-
-At a minimum, users working in a mono-repo must download the meta-repo and all
-sub-repos containing code that they require to work.
-
-There is a commit in the meta-repo for every change made in the organization,
-so the number of commits in the history of the meta-repo may be very large.
-However, the information contained in each commit is relatively small,
-generally indicating only changes to submodule pointers.  Furthermore, the
-on-disk (checked out) rendering of the meta-repo is also small, being only a
-file indicating the state of each sub-repo, and growing only as sub-repos are
-added.  Therefore, the cost of cloning and checking out a meta-repo will be
-relatively cheap, and scale slowly with the addition of new code -- especially
-compared with the cost of doing the same operations in a single (physical)
-repository.
-
-Most other operations such as `checkout`, `commit`, `merge`, `status`, etc.
-increase in cost with the number of files in open repositories on disk.
-Therefore, the performance of a mono-repo will generally be determined by how
-many files developers need to have on disk to do their work; this number can be
-minimized through several strategies:
-
-- decomposing large large sub-repos into multiple sub-repos as they become
-  overly large
-- minimizing dependencies -- if an organization's software is a giant
-  interdependent ball, its developers may need most of its code on disk to work
-- eliminate the need to open dependent sub-repos -- typically, a developer
-  needs to open sub-repos that the need to (a) change, or (b) are build
-  dependencies of sub-repos they need to change.  While outside the scope of
-  git-meta, we are developing a proposal to address this case and will link to
-  it here when ready.
-
 # Naive Architecture
 
 In this section we describer the basic model we had in mind when we started
@@ -944,6 +912,38 @@ longer have any knowledge that Jill's fork exists.
 1. However, since git-meta does not push branch or tag names to sub-repos, and
    synthetic-meta-branches are plain refs that must be explicitly fetched,
    there will not be a problem with name-explosion in sub-repos.
+
+# Performance
+
+At a minimum, users working in a mono-repo must download the meta-repo and all
+sub-repos containing code that they require to work.
+
+There is a commit in the meta-repo for every change made in the organization,
+so the number of commits in the history of the meta-repo may be very large.
+However, the information contained in each commit is relatively small,
+generally indicating only changes to submodule pointers.  Furthermore, the
+on-disk (checked out) rendering of the meta-repo is also small, being only a
+file indicating the state of each sub-repo, and growing only as sub-repos are
+added.  Therefore, the cost of cloning and checking out a meta-repo will be
+relatively cheap, and scale slowly with the addition of new code -- especially
+compared with the cost of doing the same operations in a single (physical)
+repository.
+
+Most other operations such as `checkout`, `commit`, `merge`, `status`, etc.
+increase in cost with the number of files in open repositories on disk.
+Therefore, the performance of a mono-repo will generally be determined by how
+many files developers need to have on disk to do their work; this number can be
+minimized through several strategies:
+
+- decomposing large large sub-repos into multiple sub-repos as they become
+  overly large
+- minimizing dependencies -- if an organization's software is a giant
+  interdependent ball, its developers may need most of its code on disk to work
+- eliminate the need to open dependent sub-repos -- typically, a developer
+  needs to open sub-repos that the need to (a) change, or (b) are build
+  dependencies of sub-repos they need to change.  While outside the scope of
+  git-meta, we are developing a proposal to address this case and will link to
+  it here when ready.
 
 # Tools
 
