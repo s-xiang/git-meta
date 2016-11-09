@@ -335,7 +335,7 @@ of this strategy on client-side checkouts.
 ### Definition
 
 A synthetic-meta-ref is a ref in a sub-repo whose name includes the commit ID
-of the commit at which it points, such as:
+of the commit to which it points, such as:
 `refs/meta/929e8afc03fef8d64249ad189341a4e8889561d7`.  The term is derived from
 the fact that such a ref is:
 
