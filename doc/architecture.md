@@ -301,8 +301,8 @@ Git repositories.  We consider this to be acceptable for the following reasons:
 
 ## Refs
 
-This section describes how refs are managed in a mono-repo.  First we briefly
-explain high-level branching and tagging strategy.  Then, we define
+This section describes how refs are managed in a mono-repo.  First, we briefly
+explain our high-level branching and tagging strategy.  Then, we define
 synthetic-meta-refs and discuss how they fit into git-meta workflows.  Finally,
 we present two variations on synthetic-meta-refs to help illustrate how the
 concept evolved; one of these variations, *mega-refs*, may prove necessary for
@@ -314,7 +314,7 @@ In git-meta, branches and tags are applied only to meta-repos.  Because each
 commit in a meta-repo unambiguously describes the state of all sub-repos, it is
 unnecessary to apply branches and tags to sup-repos.  Furthermore, as described
 in the "Naive Architecture" section below, schemes relying on sub-repo branches
-are not practical.
+proved to be impractical.
 
 Therefore, ref names in git-meta always refer to refs in the meta-repo.
 Branches and tags in sub-repos are ignored by git-meta -- by server-side checks
