@@ -34,11 +34,11 @@
 ## TL;DR
 
 Git-meta allows developers to work with extremely large codebases --
-performance does not degrade with increasing physical size, number of files,
-number of contributors, or depth of history.  Developers clone only the
-subsets of the code that they need, yet can still make atomic commits
-across the entire codebase and easily collaborate with others using standard
-Git mechanisms.
+performance degrades very slowly with increases in physical size, number of
+files, number of contributors, and depth of history.  Users clone only the
+subsets of the code that they need, yet can still make atomic commits across
+the entire codebase; and easily develop and collaborate with others using
+standard Git mechanisms.
 
 ## A little more detail
 
@@ -48,6 +48,36 @@ ability to install the tools provided in this repository, git-meta requires
 only Git.  Git-meta is not tied to any specific Git hosting solution, and does
 not provide operations that are hosting-solution-specific, such as the ability
 to create new (server-side) repositories.
+
+A detailed description of the architecture of Git meta is provided in
+[doc/architecture.md](doc/architecture.md).
+
+# Getting Started
+
+## Installation
+
+To install the Git meta plugin:
+
+```bash
+$ git clone https://github.com/twosigma/git-meta.git
+$ cd git-meta
+$ npm install -g
+```
+
+# Documentation
+
+## User Guide
+
+Run `git meta --help` to see information about git-meta commands, or see
+the users's guide at [doc/users-guide.md](doc/users-guide.md) for more
+information.
+
+## Administration
+
+To learn how to set up and maintain a mono-repo using git-meta, please see:
+[doc/administration.md](doc/administration.md).
+
+## Architecture
 
 A detailed description of the architecture of Git meta is provided in
 [doc/architecture.md](doc/architecture.md).
