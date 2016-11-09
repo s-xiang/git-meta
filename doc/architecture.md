@@ -473,7 +473,7 @@ remote
 `---------------------,  `--------------,  `--------------,
 ```
 Where we have new commits, `a2` and `b2` in repos `a` and `b`, respectively,
-and a new meta-repo commit, `m2` that references them.  Note that `a` and `b`
+and a new meta-repo commit, `m2` that references them.  Note that `a1` and `b1`
 have appropriate synthetic-meta-refs 
 
 After invoking `git meta push`, the remote repos would look like:
