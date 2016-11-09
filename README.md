@@ -37,8 +37,8 @@ Git-meta allows developers to work with extremely large codebases --
 performance degrades very slowly with increases in physical size, number of
 files, number of contributors, and depth of history.  Users clone only the
 subsets of the code that they need, yet can still make atomic commits across
-the entire codebase; and easily develop and collaborate with others using
-standard Git mechanisms.
+the entire codebase.  Development and collaboration are done using mostly
+normal Git commands; we provide a plugin for ease-of-use.
 
 ## A little more detail
 
