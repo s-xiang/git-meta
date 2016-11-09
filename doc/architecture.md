@@ -352,7 +352,7 @@ A mono-repo has two invariants with respect to synthetic-meta-refs:
 1. Every commit in a sub-repo that is identified by a commit in any meta-repo
    must be reachable by a synthetic-meta-ref.
 
-A some mono-repos in valid states:
+Some mono-repos in valid states:
 
 ```
 '-------------------`  '-------------------`
