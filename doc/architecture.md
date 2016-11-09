@@ -433,7 +433,7 @@ The first invariant provides for sanity: we know what a synthetic-meta-ref is
 pointing to from its name, and for the ability to use synthetic-meta-refs as
 *push targets*.  Because a synthetic-meta-ref (if it exists) must point to the
 commit identified in its name, we are always guaranteed to be able to push one
-(thought the push may prove unnecessary if the ref already exists).
+(though the push may prove unnecessary if the ref already exists).
 
 The second invariant protects necessary (because they are referenced from
 meta-repos) sub-repo commits from garbage collection.  Note that it does imply
