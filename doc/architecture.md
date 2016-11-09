@@ -360,6 +360,7 @@ Some mono-repos in valid states:
 | - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1] |  | refs/meta/a1 [a1] |
 `-------------------,  `-------------------,
+
 The 'master' branch in the meta-repo indicates commit 'a1' for repo 'a' and a
 valid synthetic-meta-ref exists.
 ```
@@ -372,6 +373,7 @@ valid synthetic-meta-ref exists.
 | - - - - -+- - - - |  | refs/meta/ab [ab] |
 |  release | a [ab] |  `-------------------,
 `-------------------,
+
 The meta-repo has another branch, 'release', indicating commit 'ab' in 'a',
 which also has a valid synthetic-meta-ref.
 ```
@@ -384,6 +386,7 @@ which also has a valid synthetic-meta-ref.
 | - - - - -+- - - - - - |  `-------------------,
 |  release | a [a2->a1] |
 `-----------------------,
+
 Same as above except that 'release' points to a commit, 'a2', derived from
 'a1'.  Since 'a1' is reachable from 'a2', we do not need a synthetic-meta-ref
 for 'a1'.
@@ -397,6 +400,7 @@ A few mono-repos in invalid states:
 | - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1] |  | refs/meta/a1 [a2] |
 `-------------------,  `-------------------,
+
 The synthetic-meta-ref for 'a1' does not point to 'a1'.
 ```
 
@@ -406,6 +410,7 @@ The synthetic-meta-ref for 'a1' does not point to 'a1'.
 | - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1] |  | refs/meta/ab [ab] |
 `-------------------,  `-------------------,
+
 No synthetic-meta-ref for commit 'a1'.
 ```
 
@@ -417,6 +422,7 @@ No synthetic-meta-ref for commit 'a1'.
 | - - - - -+- - - - - - |  `-------------------,
 |  release | a [a2->a1] |
 `-----------------------,
+
 Missing synthetic-meta-ref for 'a2', which is not reachable from 'a1'.
 ```
 
