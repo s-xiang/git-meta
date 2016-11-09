@@ -688,7 +688,7 @@ how this strategy solves the collaboration problems discussed earlier.
 Finally, we present to variations on our strategy that we did not use, but that
 could prove useful and/or informative.
 
-##### Definition
+##### Definition and strategy
 
 A synthetic-meta-ref is a ref in a sub-repo in a specific form, most notably
 including the ID of the Git commit to which it points in its name, such as:
@@ -700,12 +700,30 @@ from the fact that such a ref is:
    indirectly) referenced by a commit in the meta-repo
 1. _ref_ -- just a ref, not a branch or tag
 
+A mono-repo must maintain the invariant that every sub-repo commit referenced
+by a meta-repo commit in *any* meta-repo fork must be reachable from a
+synthetic-meta-ref in that sub-repo.
+
+To assist in this strategy, we provide tools (discussed in more detail later)
+to:
+
+- validate that pushes to synthetic-meta-refs are valid, i.e., that they point
+  to the appropriate commit
+- validate that pushes to refs in meta-repos indicate only commits in sub-repos
+  that are reachable by synthetic-meta-refs
+- create synthetic-meta-refs during pushes
+- fetch 
+
+utilities to validate meta-repo and sub-repo pushes, and client-side tools to
+help with creating synthetic-meta-refs; these tools are described in detail
+below.
+
+##### Implications
 
 
+##### A synthetic-meta-ref for every commit
 
-##### As fetch targets
-
-As it is not possible to directly fetch a commit by its sha1 in earlier
+As it is not possible to directly fetch a commit by its sha1 in older
 versions of Git, our first proposal for synthetic-meta-refs had the invariant
 that every commit in a sub-repo that is directly referenced by a commit in any
 meta-repo fork have a synthetic-meta-ref associated with it.
