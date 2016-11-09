@@ -68,9 +68,8 @@ $ npm install -g
 
 ## User Guide
 
-Run `git meta --help` to see information about git-meta commands, or see
-the users's guide at [doc/users-guide.md](doc/users-guide.md) for more
-information.
+Run `git meta --help` to see information about git-meta commands, or see the
+user guide at [doc/user-guide.md](doc/user-guide.md) for more information.
 
 ## Administration
 
