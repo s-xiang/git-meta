@@ -157,7 +157,7 @@ state of all sub-repos, i.e., the mono-repo:
 |                                                                        |
 |  '-----------------------`                                             |
 |  | meta-repo  |          |                                             |
-|  | *master =  | foo/bar--|---------> [a1   http://foo-bar.git]         |
+|  | *master    | foo/bar--|---------> [a1   http://foo-bar.git]         |
 |  | [m1]       | foo/baz--|---------> [b1   http://foo-baz.git]         |
 |  |            |     zam--|---------> [c1   http://zam.git]             |
 |  |            |          |                                             |
