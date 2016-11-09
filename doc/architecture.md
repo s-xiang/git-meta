@@ -364,7 +364,7 @@ A some mono-repos in valid states:
 |   [m1]   |        |  `-------------------,
 `-------------------,
 The 'master' branch in the meta-repo indicates commit 'a1' for repo 'a' and a
-valid synthetic-meta-ref exists
+valid synthetic-meta-ref exists.
 ```
 
 ```
@@ -372,26 +372,60 @@ valid synthetic-meta-ref exists
 | meta-repo         |  |         a         |
 | - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1] |  | refs/meta/a1 [a1] |
-|   [m1]   |        |  | refs/meta/ab [ab] |
-| - - - - -+- - - - |  `-------------------,
-|  release | a [ab] |
+| - - - - -+- - - - |  | refs/meta/ab [ab] |
+|  release | a [ab] |  `-------------------,
 `-------------------,
-```
-The meta-repo has another branch, `release`, indicating commit `ab` in `a`,
+The meta-repo has another branch, 'release', indicating commit 'ab' in 'a',
 which also has a valid synthetic-meta-ref.
+```
 
 ```
 '-----------------------`  '-------------------`
 | meta-repo             |  |         a         |
-| - - - - - - - - -     |  | - - - - - - - - - |
+| - - - - - - - - - - - |  | - - - - - - - - - |
 |  master  | a [a1]     |  | refs/meta/a2 [a2] |
-|   [m1]   |            |  `-------------------,
-| - - - - -+- - - - - - |
+| - - - - -+- - - - - - |  `-------------------,
 |  release | a [a2->a1] |
 `-----------------------,
+Same as above except that 'release' points to a commit, 'a2', derived from
+'a1'.  Since 'a1' is reachable from 'a2', we do not need a synthetic-meta-ref
+for 'a1'.
 ```
 
-We provide tools (described in more detail below) to enforce these invariants.
+A few mono-repos in invalid states:
+
+```
+'-------------------`  '-------------------`
+| meta-repo         |  |         a         |
+| - - - - - - - - - |  | - - - - - - - - - |
+|  master  | a [a1] |  | refs/meta/a1 [a2] |
+`-------------------,  `-------------------,
+The synthetic-meta-ref for 'a1' does not point to 'a1'.
+```
+
+```
+'-------------------`  '-------------------`
+| meta-repo         |  |         a         |
+| - - - - - - - - - |  | - - - - - - - - - |
+|  master  | a [a1] |  | refs/meta/ab [ab] |
+`-------------------,  `-------------------,
+No synthetic-meta-ref for commit 'a1'.
+```
+
+```
+```
+'-----------------------`  '-------------------`
+| meta-repo             |  |         a         |
+| - - - - - - - - - - - |  | - - - - - - - - - |
+|  master  | a [a1]     |  | refs/meta/a1 [a1] |
+| - - - - -+- - - - - - |  `-------------------,
+|  release | a [a2->a1] |
+`-----------------------,
+Missing synthetic-meta-ref for 'a2', which is not reachable from 'a1'.
+```
+
+Note that we provide tools (described in more detail below) to enforce these
+invariants.
 
 The first invariant provides for sanity: we know what a synthetic-meta-ref is
 pointing to from its name, and for the ability to use synthetic-meta-refs as
