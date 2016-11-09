@@ -320,7 +320,7 @@ Therefore, ref names in git-meta always refer to refs in the meta-repo.
 Branches and tags in sub-repos are ignored by git-meta -- by server-side checks
 and by the client-side `git-meta` plugin.  You may choose to create branches or
 tags in sub-repos (for example, to mirror significant branches and tags in a
-meta-repo), but they will not affect git-meta.  The git-meta plugin will not
+meta-repo), but they will not affect git-meta.  The git-meta plugin does not
 push branches or tags in sub-repos when, e.g. the `git meta push` command is
 used.
 
@@ -444,22 +444,59 @@ some bookkeeping, for which we provide additional tools:
 Before pushing one or more commits to a meta-repo ref, clients of git-meta are
 required to have already pushed a synthetic-meta-ref for each commit in each
 sub-repo referenced by these meta-repo commits.  Clients may make reasonable
-guesses about which synthetic-meta-refs need to be created, based on which
+guesses about which synthetic-meta-refs need to be created based on which
 meta-repo commits they are pushing -- should these assumptions prove wrong the
 push will be rejected.
 
 We provide the `git meta push` command to facilitate the creation of
-synthetic-meta-refs.
+synthetic-meta-refs.  Given the following local and remote repos:
+
+```
+local
+'---------------------------------`
+| meta-repo  |                    |
+| *master    | a *master [a2->a1] |
+| [m2->m1]   | b *master [b2->b1] |
+`---------------------------------,
+
+remote
+'---------------------`  '--------------`  '--------------`
+| meta-repo  |        |  | a            |  | b            |
+| master     | a [a1] |  | refs/meta/a1 |  | refs/meta/b1 |
+| [m1]       | b [b1] |  |  [a1]        |  |  [b1]        |
+`---------------------,  `--------------,  `--------------,
+```
+Where we have new commits, `a2` and `b2` in repos `a` and `b`, respectively,
+and a new meta-repo commit, `m2` that references them.  Note that `a` and `b`
+have appropriate synthetic-meta-refs 
+
+After invoking `git meta push`, the remote repos would look like:
+
+```
+'---------------------`  '--------------`  '--------------`
+| meta-repo  |        |  | a            |  | b            |
+| master     | a [a2] |  | refs/meta/a1 |  | refs/meta/b1 |
+| [m2]       | b [b2] |  |  [a1]        |  |  [b1]        |
+`---------------------,  | refs/meta/a2 |  | refs/meta/b2 |
+                         |  [a2]        |  |  [b2]        |
+                         `--------------,  `--------------,
+```
+Note that `git meta push` created meta-refs in the sub-repos for the new
+commits before it updated the meta-repo.  If the process had been interrupted,
+for example, after pushing `refs/meta/a2` but before pushing `refs/meta/b2`,
+the mono-repo would still be in a valid state.  If no meta-repo commit ever
+referenced `a2`, the synthetic-meta-ref `refs/meta/a2` would eventually be
+cleand up.
 
 ### Client-side access to sub-repo commits
 
 Since synthetic-meta-refs are not branches or tags, they are not fetched
 automatically when a sub-repo is cloned or fetched.  This behavior is by
 design: fetching every commit that is in-flight in an organization may be
-prohibitive.  However, we do must fetch the commits as they are needed.  We
-rely on the relatively recent facility provided by Git to directly fetch a
-commit by its sha1.  Our `git-meta` plugin will perform this fetch as needed,
-for example, when:
+prohibitive.  However, we must fetch the commits as they are needed.  We rely
+on the relatively recent facility provided by Git to directly fetch a commit by
+its sha1.  Our `git-meta` plugin performs this fetch as needed, for example,
+when:
 
 - opening a sub-repo
 - checking out a new branch
