@@ -68,6 +68,60 @@ const CONFIG_FILE_NAME = "config";
 exports.modulesFileName = ".gitmodules";
 
 /**
+ * Return the result of resolving the specified `relativeUrl` onto the
+ * specified `baseUrl`.
+ *
+ * @param {String} baseUrl
+ * @param {String} relativeUrl
+ * @return {String}
+ */
+exports.resolveUrl = function (baseUrl, relativeUrl) {
+    assert.isString(baseUrl);
+    assert.isString(relativeUrl);
+    assert(relativeUrl.startsWith("../") || relativeUrl.startsWith("./"));
+
+    // This is a pretty naive algorithm, but it should be good enough for most
+    // cases.  List all elements of the baseUrl and the relativeUrl that are
+    // in-between "/" characters.  Walk through the elements of 'relative',
+    // throwing away "." and ".." elements, and popping the last element of the
+    // base list whenever a ".." is found.  Afterwards, join the elements of
+    // these lists together with "/".
+
+    let base = baseUrl.split("/");
+    let relative = relativeUrl.split("/");
+    while (0 !== relative.length) {
+        if (".." === relative[0]) {
+            base.pop();
+            relative.shift();
+        }
+        else if ("." === relative[0]) {
+            relative.shift();
+        }
+        else {
+            break;  // Once no more relative operators, quit.
+        }
+    }
+    return base.concat(relative).join("/");
+};
+
+/**
+ * If the specified `submoduleUrl` is a relative path, return the result of
+ * resolving it onto the specified `baseUrl`; otherwise, return `submoduleURL`.
+ *
+ * @param {String} baseUrl
+ * @param {String} submoduleUrl
+ * @return {String}
+ */
+exports.resolveSubmoduleUrl = function (baseUrl, submoduleUrl) {
+    assert.isString(baseUrl);
+    assert.isString(submoduleUrl);
+    if (submoduleUrl.startsWith("./") || submoduleUrl.startsWith("../")) {
+        return exports.resolveUrl(baseUrl, submoduleUrl);
+    }
+    return submoduleUrl;
+};
+
+/**
  * Return a map from submodule name to url from the specified `text`.
  * @param {String} text
  */
@@ -229,17 +283,22 @@ exports.initSubmodule = co.wrap(function *(repoPath, name, url) {
 /**
  * Open the submodule having the specified `name` and `url` for the repo at the
  * specified `repoPath`.  Configure the repository for this submodule to have
- * `url` as its remote.  Return the newly opened repository.  Note that this
- * command does not fetch any refs from the remote for this submodule, and
- * while its repo can be opened it will be empty.
+ * `url` as its remote, unless `url` is relative, in which case resolve `url`
+ * against the specified `repoUrl`.  Return the newly opened repository.  Note
+ * that this command does not fetch any refs from the remote for this
+ * submodule, and while its repo can be opened it will be empty.
  *
  * @async
+ * @param {String} repoUrl
  * @param {String} repoPath
  * @param {String} name
  * @param {String} url
  * @return {NodeGit.Repository}
  */
-exports.initSubmoduleAndRepo = co.wrap(function *(repoPath, name, url) {
+exports.initSubmoduleAndRepo = co.wrap(function *(repoUrl,
+                                                  repoPath,
+                                                  name,
+                                                  url) {
     assert.isString(repoPath);
     assert.isString(name);
     assert.isString(url);
@@ -269,14 +328,7 @@ exports.initSubmoduleAndRepo = co.wrap(function *(repoPath, name, url) {
     }
     workdirPath += name;
 
-    let realUrl = url;
-    try {
-        // Use the real url to fix relative paths, if it's a path
-
-        realUrl = yield fs.realpath(url);
-    }
-    catch (e) {
-    }
+    const realUrl = exports.resolveSubmoduleUrl(repoUrl, url);
 
     return yield NodeGit.Repository.initExt(subRepoDir, {
         originUrl: realUrl,

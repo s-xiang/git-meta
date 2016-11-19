@@ -36,6 +36,7 @@ const assert  = require("chai").assert;
 const NodeGit = require("nodegit");
 const co      = require("co");
 
+const GitUtil             = require("./git_util");
 const SubmoduleConfigUtil = require("./submodule_config_util");
 const SubmoduleUtil       = require("./submodule_util");
 
@@ -63,7 +64,14 @@ exports.openBranchOnCommit = co.wrap(function *(repo,
     assert.isString(branchName);
     assert.isString(commitSha);
 
+    let originUrl = "";
+    if (yield GitUtil.isValidRemoteName(repo, "origin")) {
+        const origin = yield repo.getRemote("origin");
+        originUrl = origin.url();
+    }
+
     const submoduleRepo = yield SubmoduleConfigUtil.initSubmoduleAndRepo(
+                                                                originUrl,
                                                                 repo.workdir(),
                                                                 submoduleName,
                                                                 url);
