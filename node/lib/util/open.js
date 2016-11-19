@@ -51,7 +51,6 @@ const SubmoduleConfigUtil = require("./submodule_config_util");
  * @param {String} repoPath
  * @param {String} submoduleName
  * @param {String} url
- * @param {String} branchName
  * @param {String} commitSha
  * @return {NodeGit.Repository}
  */
