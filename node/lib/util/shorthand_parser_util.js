@@ -1142,9 +1142,11 @@ exports.parseMultiRepoShorthand = function (shorthand, existingRepos) {
 
                 const subBase = result[sub.url];
                 const clone = RepoASTUtil.cloneRepo(subBase, sub.url);
+                const origin = clone.remotes.origin;
                 const baseSubAST = clone.copy({
                     branches: {},
                     currentBranchName: null,
+                    remotes: { origin: new RepoAST.Remote(origin.url) },
                 });
                 const rawSubRepo = rawResult.openSubmodules[subName];
 

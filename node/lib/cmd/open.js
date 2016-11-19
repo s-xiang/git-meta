@@ -66,18 +66,33 @@ exports.configureParser = function (parser) {
 exports.executeableSubcommand = co.wrap(function *(args) {
     const colors = require("colors");
 
-    const GitUtil    = require("../util/git_util");
-    const Open       = require("../util/open");
-    const Status     = require("../util/status");
-    const UserError  = require("../util/user_error");
+    const GitUtil       = require("../util/git_util");
+    const Open          = require("../util/open");
+    const Status        = require("../util/status");
+    const SubmoduleUtil = require("../util/submodule_util");
+    const UserError     = require("../util/user_error");
 
     const repo   = yield GitUtil.getCurrentRepo();
     const status = yield Status.getRepoStatus(repo);
 
+    if (!(yield GitUtil.isValidRemoteName(repo, "origin"))) {
+        throw new UserError("Repo has no origin");
+    }
+
+    const origin = yield repo.getRemote("origin");
+    const originUrl = origin.url();
+
+    const repoPath = repo.workdir();
+
     let errors = "";
 
     const subs = status.submodules;
-    const openers = args.path.map(co.wrap(function *(name) {
+
+    const subsToOpen = args.path;
+
+    const shas = yield SubmoduleUtil.getCurrentSubmoduleShas(repo, subsToOpen);
+
+    const openers = subsToOpen.map(co.wrap(function *(name, index) {
         if (!(name in subs)) {
             errors += `Invalid submodule ${colors.cyan(name)}.\n`;
             return;                                                   // RETURN
@@ -90,7 +105,11 @@ exports.executeableSubcommand = co.wrap(function *(args) {
             errors += `Submodule ${colors.cyan(name)} has been deleted.\n`;
         }
         else {
-            yield Open.open(repo, name, sub.indexUrl);
+            yield Open.openOnCommit(originUrl,
+                                    repoPath,
+                                    name,
+                                    sub.indexUrl,
+                                    shas[index]);
         }
     }));
     yield openers;

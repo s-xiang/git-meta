@@ -586,6 +586,7 @@ describe("ShorthandParserUtil", function () {
     describe("parseMultiRepoShorthand", function () {
         const AST = RepoAST;
         const Commit = AST.Commit;
+        const Remote = AST.Remote;
         const Submodule = AST.Submodule;
         const S = ShorthandParserUtil.RepoType.S;
         const cases = {
@@ -665,6 +666,7 @@ describe("ShorthandParserUtil", function () {
                             foo: RepoASTUtil.cloneRepo(S, "a").copy({
                                 branches: {},
                                 currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
                             })
                         }
                     }),
@@ -680,6 +682,7 @@ describe("ShorthandParserUtil", function () {
                             foo: RepoASTUtil.cloneRepo(S, "a").copy({
                                 branches: { m: "1" },
                                 currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
                             })
                         }
                     }),
@@ -708,6 +711,7 @@ describe("ShorthandParserUtil", function () {
                                 },
                                 branches: { m: "1", aa: "2" },
                                 currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
                             })
                         }
                     }),
@@ -725,6 +729,7 @@ describe("ShorthandParserUtil", function () {
                                 index: { x: "y"},
                                 workdir: { u: "2" },
                                 currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
                             })
                         }
                     }),
@@ -785,7 +790,7 @@ describe("ShorthandParserUtil", function () {
                         },
                         openSubmodules: {
                             s: ShorthandParserUtil.parseRepoShorthand(
-                                "S:C3-1;H=3;Bmaster=;Rorigin=a master=1"),
+                                "S:C3-1;H=3;Bmaster=;Rorigin=a"),
                         },
                     }),
                 },
@@ -816,6 +821,7 @@ describe("ShorthandParserUtil", function () {
                                 },
                                 branches: { x: "2" },
                                 currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
                             })
                         }
                     }),
