@@ -102,39 +102,18 @@ describe("include", function () {
             const submoduleRepo = 
                 yield NodeGit.Repository.open(repo.workdir() + path);
             const submoduleHead = yield submoduleRepo.getHeadCommit();
-            
+
             assert(externalHead.id().equal(submoduleHead.id()), 
                 "head commits should be equal");
         }));
 
-        it("should create the branch", co.wrap(function *() {
-            const externalBranch = yield externalRepo.getCurrentBranch();
-            const submoduleRepo = 
-                yield NodeGit.Repository.open(repo.workdir() + path);
+        it("current should be head and detached", co.wrap(function *() {
+            const submoduleRepo =
+                          yield NodeGit.Repository.open(repo.workdir() + path);
             const submoduleBranch = yield submoduleRepo.getCurrentBranch();
-            
-            assert.equal(submoduleBranch.shorthand(), 
-                externalBranch.shorthand());
-        }));
 
-        it("should create the branch if not on master", co.wrap(function *() {
-
-            // create a new repo on the branch "public" and 
-            // include the externalRepo
-
-            const branchName = "public";
-            const newRepo = 
-                yield TestUtil.createSimpleRepositoryOnBranch(branchName);
-            const newPath = "bar";
-            yield Include.include(newRepo, externalRepo.workdir(), newPath);
-
-            const repoBranch = yield newRepo.getCurrentBranch();
-            const submoduleRepo = 
-                yield NodeGit.Repository.open(newRepo.workdir() + newPath);
-            const submoduleBranch = yield submoduleRepo.getCurrentBranch();
-            
-            assert.equal(repoBranch.shorthand(), submoduleBranch.shorthand());
-            assert.equal(submoduleBranch.shorthand(), branchName);
+            assert.equal(submoduleBranch.shorthand(), "HEAD");
+            assert.equal(submoduleRepo.headDetached(), 1);
         }));
 
         it("should have signature of the current repo", co.wrap(function *() {
