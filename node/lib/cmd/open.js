@@ -75,12 +75,7 @@ exports.executeableSubcommand = co.wrap(function *(args) {
     const repo   = yield GitUtil.getCurrentRepo();
     const status = yield Status.getRepoStatus(repo);
 
-    if (!(yield GitUtil.isValidRemoteName(repo, "origin"))) {
-        throw new UserError("Repo has no origin");
-    }
-
-    const origin = yield repo.getRemote("origin");
-    const originUrl = origin.url();
+    const originUrl = yield GitUtil.getOriginUrl(repo);
 
     const repoPath = repo.workdir();
 

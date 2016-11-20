@@ -42,16 +42,15 @@ const SubmoduleConfigUtil = require("./submodule_config_util");
 /**
  * Open the submodule having the specified `submoduleName` in the specified
  * `repo`; fetch the specified `commitSha` and set HEAD to point to it.
- * 
- * configure it to be checked out on the specified `branchName` on the
- * specified `commitSha`.
+ * Configure the "origin" remote to the specified `url`, using the specified
+ * `baseUrl` to resolve against `url` if it is relative.
  *
  * @async
- * @param {String} repoOriginUrl
- * @param {String} repoPath
- * @param {String} submoduleName
- * @param {String} url
- * @param {String} commitSha
+ * @param {String|null} repoOriginUrl
+ * @param {String}      repoPath
+ * @param {String}      submoduleName
+ * @param {String}      url
+ * @param {String}      commitSha
  * @return {NodeGit.Repository}
  */
 exports.openOnCommit = co.wrap(function *(repoOriginUrl,
@@ -59,8 +58,10 @@ exports.openOnCommit = co.wrap(function *(repoOriginUrl,
                                           submoduleName,
                                           url,
                                           commitSha) {
+    if (null !== repoOriginUrl) {
+        assert.isString(repoOriginUrl);
+    }
     assert.isString(repoPath);
-    assert.isString(repoOriginUrl);
     assert.isString(submoduleName);
     assert.isString(url);
     assert.isString(commitSha);

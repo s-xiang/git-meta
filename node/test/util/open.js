@@ -65,7 +65,7 @@ describe("openOnCommit", function () {
                 const commit = maps.reverseMap[c.commitSha];
                 const url = maps.reverseUrlMap[c.url];
                 const x = repos.x;
-                const result = yield Open.openOnCommit("",
+                const result = yield Open.openOnCommit(null,
                                                        x.workdir(),
                                                        c.subName,
                                                        url,
