@@ -39,6 +39,7 @@ const path    = require("path");
 const Close               = require("../../lib/util/close");
 const SubmoduleConfigUtil = require("../../lib/util/submodule_config_util");
 const TestUtil            = require("../../lib/util/test_util");
+const UserError           = require("../../lib/util/user_error");
 
 describe("SubmoduleConfigUtil", function () {
 
@@ -91,6 +92,11 @@ describe("SubmoduleConfigUtil", function () {
                 sub: "/x/y",
                 expected: "/x/y",
             },
+            "not relative, null origin": {
+                base: null,
+                sub: "/x/y",
+                expected: "/x/y",
+            },
             "inside": {
                 base: "/foo/bar",
                 sub: "./y",
@@ -101,12 +107,27 @@ describe("SubmoduleConfigUtil", function () {
                 sub: "../y",
                 expected: "/foo/y",
             },
+            "relative, but null origin": {
+                base: null,
+                sub: "../y",
+                expected: "/foo/y",
+                fails: true,
+            },
         };
         Object.keys(cases).forEach(caseName => {
             it(caseName, function () {
                 const c = cases[caseName];
-                const result = SubmoduleConfigUtil.resolveSubmoduleUrl(c.base,
-                                                                       c.sub);
+                let result;
+                try {
+                    result = SubmoduleConfigUtil.resolveSubmoduleUrl(c.base,
+                                                                     c.sub);
+                }
+                catch (e) {
+                    assert(c.fails);
+                    assert.instanceOf(e, UserError);
+                    return;
+                }
+                assert(!c.fails);
                 assert.equal(result, c.expected);
             });
         });
