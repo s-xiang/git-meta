@@ -73,6 +73,7 @@ exports.executeableSubcommand = co.wrap(function *(args) {
     const UserError     = require("../util/user_error");
 
     const repo   = yield GitUtil.getCurrentRepo();
+    const index  = yield repo.index();
     const status = yield Status.getRepoStatus(repo);
 
     const originUrl = yield GitUtil.getOriginUrl(repo);
@@ -85,7 +86,8 @@ exports.executeableSubcommand = co.wrap(function *(args) {
 
     const subsToOpen = args.path;
 
-    const shas = yield SubmoduleUtil.getCurrentSubmoduleShas(repo, subsToOpen);
+    const shas = yield SubmoduleUtil.getCurrentSubmoduleShas(index,
+                                                             subsToOpen);
 
     const openers = subsToOpen.map(co.wrap(function *(name, index) {
         if (!(name in subs)) {

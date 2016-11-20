@@ -160,19 +160,17 @@ exports.getSubmoduleShasForBranch = co.wrap(function *(repo, branchName) {
 
 /**
  * Return an array of the expected shas for the submodules having the specified
- * `submoduleNames` in the specified `repo`.
+ * `submoduleNames` in the specified `index`.
  *
- * @asyn
- * @param {NodeGit.Repository} repo
- * @param {String []}          submoduleNames
+ * @param {NodeGit.Index} index
+ * @param {String []}      submoduleNames
  * @return {String []}
  */
-exports.getCurrentSubmoduleShas = co.wrap(function *(repo, submoduleNames) {
-    assert.instanceOf(repo, NodeGit.Repository);
+exports.getCurrentSubmoduleShas = function (index, submoduleNames) {
+    assert.instanceOf(index, NodeGit.Index);
     assert.isArray(submoduleNames);
     submoduleNames.forEach(name => assert.isString(name));
 
-    const index = yield repo.index();
     let result = [];
     let entry;
     for (let i = 0; i < submoduleNames.length; ++i) {
@@ -184,7 +182,7 @@ exports.getCurrentSubmoduleShas = co.wrap(function *(repo, submoduleNames) {
         }
     }
     return result;
-});
+};
 
 /**
  * Return true if the submodule having the specified `submoduleName` in the

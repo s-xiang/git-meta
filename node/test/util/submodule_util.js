@@ -238,8 +238,9 @@ describe("SubmoduleUtil", function () {
             it(caseName, co.wrap(function *() {
                 const written = yield RepoASTTestUtil.createRepo(c.state);
                 const repo = written.repo;
+                const index = yield repo.index();
                 const result = yield SubmoduleUtil.getCurrentSubmoduleShas(
-                                                                      repo,
+                                                                      index,
                                                                       c.names);
                 const mappedResult = result.map(id => written.commitMap[id]);
                 assert.deepEqual(mappedResult, c.expected);
