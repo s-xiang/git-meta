@@ -243,11 +243,12 @@ describe("GitUtil", function () {
 
             try {
                 yield GitUtil.getCurrentRepo();
-                assert(false, "didn't throw error");
             }
             catch (e) {
                 assert.instanceOf(e, UserError);
+                return;
             }
+            assert(false, "didn't throw error");
         }));
     });
 
@@ -299,11 +300,12 @@ describe("GitUtil", function () {
                                                                 c.input,
                                                                 c.expected,
                                                                 c.manipulator);
-                    assert(!c.fail);
                 }
                 catch (e) {
                     assert(c.fail, e.stack);
+                    return;
                 }
+                assert(!c.fail);
             }));
         });
     });
@@ -434,11 +436,12 @@ describe("GitUtil", function () {
                                                                 c.input,
                                                                 c.expected,
                                                                 c.manipulator);
-                    assert(!c.fail);
                 }
                 catch (e) {
                     assert(c.fail, e.stack);
+                    return;
                 }
+                assert(!c.fail);
             }));
         });
     });
@@ -481,11 +484,12 @@ describe("GitUtil", function () {
             const bad = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             try {
                 yield GitUtil.fetchSha(repo, bad);
-                assert(false, "Bad sha, should have failed");
             }
             catch (e) {
                 assert.instanceOf(e, UserError);
+                return;
             }
+            assert(false, "Bad sha, should have failed");
         }));
     });
 

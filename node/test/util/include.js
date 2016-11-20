@@ -52,11 +52,12 @@ describe("include", function () {
             const path = "";
             try {
                 yield Include.include(repo, url, path);
-                assert(false, "didn't throw error");
             } 
             catch (e) {
                 assert.instanceOf(e, UserError);
+                return;
             }
+            assert(false, "didn't throw error");
         }));
 
         it("fails with an invalid url", co.wrap(function *() {
@@ -64,11 +65,12 @@ describe("include", function () {
             const path = "foo";
             try {
                 yield Include.include(repo, url, path);
-                assert(false, "didn't throw error");
             } 
             catch (e) {
                 assert.instanceOf(e, UserError);
+                return;
             }
+            assert(false, "didn't throw error");
         }));
     });
 
