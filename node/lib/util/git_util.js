@@ -486,3 +486,19 @@ exports.isUpToDate = co.wrap(function *(repo, source, target) {
     }
     return yield NodeGit.Graph.descendantOf(repo, source, target);
 });
+
+/**
+ * Set the HEAD of the specified `repo` to the specified `commit` and force the
+ * contents to match it.
+ *
+ * @async
+ * @param {NodeGit.Repository} repo
+ * @param {NodeGit.Commit}     commit
+ */
+exports.setHeadHard = co.wrap(function *(repo, commit) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.instanceOf(commit, NodeGit.Commit);
+
+    repo.setHeadDetached(commit);
+    yield NodeGit.Reset.reset(repo, commit, NodeGit.Reset.TYPE.HARD);
+});

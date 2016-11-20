@@ -33,7 +33,6 @@
  * This module contains methods for opening repositories.
  */
 const assert  = require("chai").assert;
-const NodeGit = require("nodegit");
 const co      = require("co");
 
 const GitUtil             = require("./git_util");
@@ -80,9 +79,8 @@ exports.openOnCommit = co.wrap(function *(repoOriginUrl,
 
     // Check out HEAD
 
-    submoduleRepo.setHeadDetached(commitSha);
     const commit = yield submoduleRepo.getCommit(commitSha);
-    yield NodeGit.Reset.reset(submoduleRepo, commit, NodeGit.Reset.TYPE.HARD);
+    yield GitUtil.setHeadHard(submoduleRepo, commit);
 
     return submoduleRepo;
 });

@@ -584,4 +584,30 @@ describe("GitUtil", function () {
             }));
         });
     });
+
+    describe("setHeadHard", function () {
+        function makeSetter(commitId) {
+            return co.wrap(function *(repo, commitMap, oldMap) {
+                const realId = oldMap[commitId];
+                const commit = yield repo.getCommit(realId);
+                yield GitUtil.setHeadHard(repo, commit);
+            });
+        }
+        const cases = {
+            "same commit": { i: "S", c: "1", e: "S:H=1" },
+            "old commit": {
+                i: "S:C2-1;Bmaster=2",
+                c: "1",
+                e: "S:C2-1;H=1;Bmaster=2"
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            it(caseName, co.wrap(function *() {
+                const c = cases[caseName];
+                yield RepoASTTestUtil.testRepoManipulator(c.i,
+                                                          c.e,
+                                                          makeSetter(c.c));
+            }));
+        });
+    });
 });

@@ -78,8 +78,7 @@ exports.include = co.wrap(function* (repo, url, path) {
 
     // Set up HEAD and checkout.
 
-    submoduleRepo.setHeadDetached(commit);
-    yield NodeGit.Reset.reset(submoduleRepo, commit, NodeGit.Reset.TYPE.HARD);
+    yield GitUtil.setHeadHard(submoduleRepo, commit);
 
     yield submodule.addFinalize();
 });
