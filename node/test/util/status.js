@@ -623,8 +623,20 @@ describe("Status", function () {
                     }),
                 }),
             },
-            "old in open": {
+            "missing commit in open": {
                 state: "a=S:C2-1;Bb=2|x=S:I s=Sa:2;Os H=1",
+                expected: new Submodule({
+                    indexSha: "2",
+                    indexUrl: "a",
+                    indexStatus: FILESTATUS.ADDED,
+                    workdirShaRelation: RELATION.UNKNOWN,
+                    repoStatus: new RepoStatus({
+                        headCommit: "1",
+                    }),
+                }),
+            },
+            "old in open": {
+                state: "a=S:C2-1;Bb=2|x=S:I s=Sa:2;Os H=1!Bf=2",
                 expected: new Submodule({
                     indexSha: "2",
                     indexUrl: "a",
@@ -636,7 +648,7 @@ describe("Status", function () {
                 }),
             },
             "unrelated in open": {
-                state: "a=S:C2-1;C3-1;Bb=2;Bc=3|x=S:I s=Sa:2;Os H=3",
+                state: "a=S:C2-1;C3-1;Bb=2;Bc=3|x=S:I s=Sa:2;Os H=3!Bf=2",
                 expected: new Submodule({
                     indexSha: "2",
                     indexUrl: "a",

@@ -204,8 +204,8 @@ from ${colors.red(GitUtil.shortSha(status.commitSha))}.
                     case RELATION.UNKNOWN:
                         result += `
 Change staged to commit ${colors.yellow(GitUtil.shortSha(status.indexSha))} \
-but cannot verify relation to \
-${colors.yellow(GitUtil.shortSha(status.commitSha))} as the repo is closed.
+but cannot verify relation to previous commit \
+${colors.yellow(GitUtil.shortSha(status.commitSha))}.
 `;
                 }
                 break;
@@ -410,9 +410,18 @@ ${colors.red(name)}.`);
         const fromId = NodeGit.Oid.fromString(from);
         const toId = NodeGit.Oid.fromString(to);
 
-        const toDescendant = yield NodeGit.Graph.descendantOf(subRepo,
-                                                              toId,
-                                                              fromId);
+        // If one of the commits is not present, `descendantOf` will throw.
+
+        let toDescendant;
+        try {
+            toDescendant = yield NodeGit.Graph.descendantOf(subRepo,
+                                                            toId,
+                                                            fromId);
+        }
+        catch (e) {
+            return COMMIT_RELATION.UNKNOWN;
+        }
+
         if (toDescendant) {
             return COMMIT_RELATION.AHEAD;
         }
@@ -428,6 +437,9 @@ ${colors.red(name)}.`);
 
     // Compute the relations between the commits specifed in the workdir,
     // index, and commit.
+
+    console.log(
+`commit: ${args.commitSha}, ind: ${args.indexSha}, head: ${subStatus.headCommit}.`);
 
     args.indexShaRelation = yield getRelation(args.commitSha, args.indexSha);
     args.workdirShaRelation = yield getRelation(args.indexSha,
