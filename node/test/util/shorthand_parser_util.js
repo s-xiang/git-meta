@@ -588,7 +588,9 @@ describe("ShorthandParserUtil", function () {
         const Commit = AST.Commit;
         const Remote = AST.Remote;
         const Submodule = AST.Submodule;
+        const B = ShorthandParserUtil.RepoType.B;
         const S = ShorthandParserUtil.RepoType.S;
+        const U = ShorthandParserUtil.RepoType.U;
         const cases = {
             "simple": { i: "a=S", e: { a: "S"} },
             "multiple": {
@@ -867,6 +869,40 @@ describe("ShorthandParserUtil", function () {
                         branches: { master: "2" },
                         head: "2",
                         currentBranchName: "master",
+                    }),
+                },
+            },
+            "missing commits in open sub": {
+                i: "a=B:C8-1;Bmaster=8|b=U:Os",
+                e: {
+                    a: B.copy({
+                        commits: {
+                            "1": new Commit({
+                                changes: {
+                                    "README.md": "hello world"
+                                },
+                                message: "the first commit",
+                            }),
+                            "8": new Commit({
+                                parents: ["1"],
+                                changes: { "8": "8" },
+                                message: "message",
+                            }),
+                        },
+                        branches: {
+                            master: "8",
+                        },
+                        currentBranchName: "master",
+                    }),
+                    b: U.copy({
+                        openSubmodules: {
+                            s: RepoASTUtil.cloneRepo(S, "a").copy({
+                                branches: {},
+                                head: "1",
+                                currentBranchName: null,
+                                remotes: { origin: new Remote("a") },
+                            })
+                        },
                     }),
                 },
             },
