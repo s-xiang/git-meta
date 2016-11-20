@@ -109,6 +109,34 @@ describe("GitUtil", function () {
         });
     });
 
+    describe("getOriginUrl", function () {
+        const cases = {
+            "good": { i: "a=B|x=Ca", e: "a" },
+            "bad": { i: "x=S", e: null},
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const written = yield RepoASTTestUtil.createMultiRepos(c.i);
+                const x = written.repos.x;
+                const result = yield GitUtil.getOriginUrl(x);
+
+                // If expected URL is not null, find the actual written url.
+
+                let expected = c.e;
+                if (null !== expected) {
+                    for (let key in written.urlMap) {
+                        if (expected === written.urlMap[key]) {
+                            expected = key;
+                        }
+                    }
+                }
+
+                assert.equal(result, expected);
+            }));
+        });
+    });
+
     describe("findRemoteBranch", function () {
         const cases = {
             "simple fail": {

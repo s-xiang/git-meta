@@ -128,6 +128,27 @@ exports.isValidRemoteName = co.wrap(function *(repo, name) {
 });
 
 /**
+ * Return the URL for the remote named "origin" in the specified `repo`, or
+ * null if there is no remote named "origin".
+ *
+ * @async
+ * @param {NodeGit.Repository} repo
+ * @return {String|null}
+ */
+exports.getOriginUrl = co.wrap(function *(repo) {
+    assert.instanceOf(repo, NodeGit.Repository);
+
+    let remote;
+    try {
+        remote = yield repo.getRemote("origin");
+    }
+    catch (e) {
+        return null;
+    }
+    return remote.url();
+});
+
+/**
  * Return the remote branch having the specified local `branchName` in the
  * remote having the specified `remoteName` in the specified `repo`, or null if
  * no such branch exists.  The behavior is undefined unless 'remoteName' refers
