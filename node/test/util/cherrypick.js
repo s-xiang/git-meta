@@ -102,16 +102,14 @@ describe("cherrypick", function () {
         "picking one sub": {
             input: "\
 a=Ax:Cz-y;Cy-x;Bfoo=z|\
-x=S:C8-3 s=Sa:z;C3-2;C2-1 s=Sa:x;Bfoo=8;Bmaster=2;Os Bmaster=x!*=master",
-            expected:
-                "x=E:C9-2 s=Sa:zs;Bmaster=9;Os Czs-x z=z!Bmaster=zs!*=master",
+x=S:C8-3 s=Sa:z;C3-2;C2-1 s=Sa:x;Bfoo=8;Bmaster=2;Os H=x",
+            expected: "x=E:C9-2 s=Sa:zs;Bmaster=9;Os Czs-x z=z!H=zs",
         },
         "picking closed sub": {
             input: "\
 a=Ax:Cz-y;Cy-x;Bfoo=z|\
 x=S:C8-3 s=Sa:z;C3-2;C2-1 s=Sa:x;Bfoo=8;Bmaster=2",
-            expected:
-                "x=E:C9-2 s=Sa:zs;Bmaster=9;Os Czs-x z=z!H=zs",
+            expected: "x=E:C9-2 s=Sa:zs;Bmaster=9;Os Czs-x z=z!H=zs",
         },
         "picking two closed subs": {
             input: "\

@@ -223,22 +223,6 @@ ${colors.yellow(GitUtil.shortSha(status.commitSha))}.
         return result;                                                // RETURN
     }
 
-    // Now, check branch status
-
-    if (null !== expectedBranchName &&
-        status.repoStatus.currentBranchName !== expectedBranchName) {
-        if (null === status.repoStatus.currentBranchName) {
-            result += `\
-Expected to have ${colors.yellow(expectedBranchName)} but is not on a branch.
-`;
-        }
-        else {
-            result += `\
-On wrong branch ${colors.yellow(status.repoStatus.currentBranchName)}.
-`;
-        }
-    }
-
     // Then, the head commit of the submodule's repo.
 
     switch (status.workdirShaRelation) {
@@ -437,9 +421,6 @@ ${colors.red(name)}.`);
 
     // Compute the relations between the commits specifed in the workdir,
     // index, and commit.
-
-    console.log(
-`commit: ${args.commitSha}, ind: ${args.indexSha}, head: ${subStatus.headCommit}.`);
 
     args.indexShaRelation = yield getRelation(args.commitSha, args.indexSha);
     args.workdirShaRelation = yield getRelation(args.indexSha,
@@ -694,31 +675,12 @@ exports.ensureClean = function (metaStatus) {
 exports.ensureConsistent = function (metaStatus) {
     assert.instanceOf(metaStatus, RepoStatus);
 
-    const metaBranch = metaStatus.currentBranchName;
-
     let error = "";
-
-    if (null === metaBranch) {
-        error += "The meta-repository is not on a branch.\n";
-    }
 
     const subs = metaStatus.submodules;
     const SAME = RepoStatus.Submodule.COMMIT_RELATION.SAME;
     Object.keys(subs).forEach(subName => {
         const sub = subs[subName];
-        if (null !== metaBranch &&
-            null !== sub.repoStatus) {
-            if (null === sub.repoStatus.currentBranchName) {
-                error += `\
-Submodule ${colors.cyan(subName)} has no current branch.\n`;
-            }
-            else if (metaBranch !== sub.repoStatus.currentBranchName) {
-                error += `\
-Submodule ${colors.cyan(subName)} is on branch \
-${colors.red(sub.repoStatus.currentBranchName)} but expected \
-${colors.green(metaBranch)}.\n`;
-            }
-        }
         if (null !== sub.indexStatus) {
             error += `\
 Submodule ${colors.cyan(subName)} is changed in index.\n`;
@@ -736,16 +698,14 @@ Submodule ${colors.cyan(subName)} has new commit\n`;
 };
 
 /**
- * Throw a `UserError` object unless the specified `metaRepo` is clean
+ * Throw a `UserError` object unless the specified `status` is clean
  * according to the method `ensureClean` and consistent according to the method
  * `ensureConsistend`.
  *
- * @param {NodeGit.Repository} metaRepo
+ * @param {RepoStatus} status
  */
-exports.ensureCleanAndConsistent = co.wrap(function *(metaRepo) {
-    assert.instanceOf(metaRepo, NodeGit.Repository);
-
-    const status = yield exports.getRepoStatus(metaRepo);
+exports.ensureCleanAndConsistent = function (status) {
+    assert.instanceOf(status, RepoStatus);
     exports.ensureConsistent(status);
     exports.ensureClean(status);
-});
+};
