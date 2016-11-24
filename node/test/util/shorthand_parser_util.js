@@ -40,6 +40,7 @@ describe("ShorthandParserUtil", function () {
     describe("parseRepoShorthandRaw", function () {
         const Commit = RepoAST.Commit;
         const Submodule = RepoAST.Submodule;
+        const STATE = RepoAST.STATE;
         function m(args) {
             let result = {
                 type: args.type || "S",
@@ -423,6 +424,26 @@ describe("ShorthandParserUtil", function () {
                     },
                 }),
             },
+            "state with default override": {
+                i: "S:S",
+                e: m({ state: STATE.DEFAULT }),
+            },
+            "state with bisecing override": {
+                i: "S:SB",
+                e: m({ state: STATE.BISECTING}),
+            },
+            "state with rebasing override": {
+                i: "S:SR",
+                e: m({ state: STATE.REBASING}),
+            },
+            "state with merging override": {
+                i: "S:SM",
+                e: m({ state: STATE.MERGING}),
+            },
+            "state with picking override": {
+                i: "S:SC",
+                e: m({ state: STATE.CHERRY_PICKING}),
+            },
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
@@ -446,6 +467,7 @@ describe("ShorthandParserUtil", function () {
                 assert.equal(r.head, e.head);
                 assert.equal(r.currentBranchName, e.currentBranchName);
                 assert.deepEqual(r.openSubmodules, e.openSubmodules);
+                assert.equal(r.state, e.state);
             });
         });
     });

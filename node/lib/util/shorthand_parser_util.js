@@ -56,7 +56,8 @@ const RepoASTUtil  = require("../util/repo_ast_util");
  * shorthand      = <base repo type> [':'<override>(';'<override>)*]
  * base repo type = 'S' | 'B' | ('C'<url>) | 'A'<commit>
  * override       = <head> | <branch> | <current branch> | <new commit> |
- *                  <remote> | <index> | <workdir> | <open submodule> | <note>
+ *                  <remote> | <index> | <workdir> | <open submodule> |
+ *                  <note> | <state>
  * head           = 'H='<commit>|<nothing>             nothing means detached
  * nothing        =
  * commit         = <alphanumeric>+
@@ -72,6 +73,7 @@ const RepoASTUtil  = require("../util/repo_ast_util");
  * remote         = R<name>=[<url>]
  *                  [' '<name>=[<commit>](','<name>=[<commit>])*]
  * note           = N <ref> <commit>=message
+ * state          = 'S'['B'|'R'|'M'|'C']
  * index          = I <change>[,<change>]*
  * workdir        = W <change>[,<change>]*
  * open submodule = 'O'<path>[' '<override>('!'<override>)*]
@@ -121,9 +123,17 @@ const RepoASTUtil  = require("../util/repo_ast_util");
  * submodule is '!' to simplify parsing -- otherwise it would require more
  * sophisticated logic to determin when the submodule override ended.
  *
+ * The *state* override indicates a special repo state, such as:
+ *     'B' for RepoAST.STATE.BISECTING
+ *     'R' for RepoAST.STATE.REBASING
+ *     'M' for RepoAST.STATE.MERGING
+ *     'C' for RepoAST.STATE.CHERRY_PICKING
+ * if nothing is specified, the state is overridden to RepoAST.STATE.DEFAULT.
+ *
  * Examples:
  *
  * S                          -- same as RepoType.S
+ * S:SR                       -- simple repo that is rebasing
  * A33                        -- Like S but the single commit is named 33 and
  *                               contains a file named 33 with the contents 33.
  * S:H=                       -- removes head, bare repo
@@ -424,6 +434,7 @@ function parseOverrides(shorthand, begin, end, delimiter) {
     let remotes = {};
     let notes = {};
     let openSubmodules = {};
+    let state;
 
     /**
      * Parse a set of changes from the specified `begin` character to the
@@ -733,6 +744,28 @@ function parseOverrides(shorthand, begin, end, delimiter) {
     }
 
     /**
+     * Parse the state override beginning at the specified `begin` and
+     * terminating at the specified `end`.
+     *
+     * @param {Number} begin
+     * @param {Number} end
+     */
+    function parseState(begin, end) {
+        const STATE = RepoAST.STATE;
+        const override = shorthand.substr(begin, end - begin);
+        switch (override) {
+            case "" : state = STATE.DEFAULT; break;
+            case "B": state = STATE.BISECTING; break;
+            case "R": state = STATE.REBASING; break;
+            case "M": state = STATE.MERGING; break;
+            case "C": state = STATE.CHERRY_PICKING; break;
+            default:
+                assert(false, "invalid state override: " + override);
+            break;
+        }
+    }
+
+    /**
      * Parse the override beginning at the specified `begin` and finishing at
      * the specified `end`.
      *
@@ -755,6 +788,7 @@ function parseOverrides(shorthand, begin, end, delimiter) {
                 case "N": return parseNote;
                 case "W": return parseWorkdir;
                 case "O": return parseOpenSubmodule;
+                case "S": return parseState;
                 default:
                     assert.isNull(`Invalid override ${override}.`);
                 break;
@@ -785,6 +819,9 @@ function parseOverrides(shorthand, begin, end, delimiter) {
     }
     if (undefined !== currentBranchName) {
         result.currentBranchName = currentBranchName;
+    }
+    if (undefined !== state) {
+        result.state = state;
     }
     return result;
 }
