@@ -173,6 +173,8 @@ describe("RepoAST", function () {
                     eworkdir: ("workdir" in expected) ? expected.workdir : {},
                     eopenSubmodules: ("openSubmodules" in expected) ?
                                                   expected.openSubmodules : {},
+                    estate: ( "state" in expected) ?
+                                        expected.state : RepoAST.STATE.DEFAULT,
                     fails   : fails,
                 };
             }
@@ -413,6 +415,14 @@ describe("RepoAST", function () {
                     },
                     head: "1",
                 }, {}, true),
+                "with state": m({
+                    state: RepoAST.STATE.CHERRY_PICKING,
+                }, {
+                    state: RepoAST.STATE.CHERRY_PICKING,
+                }),
+                "bad state": m({
+                    state: "foo",
+                }, undefined, true),
             };
             Object.keys(cases).forEach(caseName => {
                 it(caseName, function () {
@@ -446,6 +456,8 @@ describe("RepoAST", function () {
                     }
 
                     assert.equal(obj.isBare(), (obj.head === null));
+
+                    assert.equal(obj.state, c.estate);
                 });
             });
         });
@@ -580,6 +592,7 @@ describe("RepoAST", function () {
                 currentBranchName: "master",
                 index: { foo: "bar" },
                 workdir: { foo: "bar" },
+                state: RepoAST.STATE.REBASING,
             });
             const newArgs = {
                 commits: { "2": new RepoAST.Commit()},
@@ -590,6 +603,7 @@ describe("RepoAST", function () {
                 remotes: { "foo": new RepoAST.Remote("meeeee") },
                 index: { foo: "bar" },
                 workdir: { foo: "bar" },
+                state: RepoAST.STATE.REBASING,
             };
             const cases = {
                 "trivial": {
@@ -614,6 +628,7 @@ describe("RepoAST", function () {
                     assert.deepEqual(obj.index, c.e.index);
                     assert.deepEqual(obj.workdir, c.e.workdir);
                     assert.deepEqual(obj.openSubmodules, c.e.openSubmodules);
+                    assert.equal(obj.state, c.e.state);
                 });
             });
         });

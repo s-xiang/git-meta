@@ -39,6 +39,16 @@ const assert   = require("chai").assert;
 const deeper   = require("deeper");
 const deepCopy = require("deepcopy");
 
+const STATE = {
+    DEFAULT: "default",
+    BISECTING: "bisecting",
+    REBASING: "rebasing",
+    MERGING: "merging",
+    CHERRY_PICKING: "cherry-picking",
+};
+
+Object.freeze(STATE);
+
 /**
  * @class {Submodule}
  *
@@ -256,6 +266,7 @@ class AST {
      * @param {Object}      [args.workdir]
      * @param {Object}      [args.notes]
      * @param {Object}      [args.openSubmodules]
+     * @param {STATE}       [args.state]
      */
     constructor(args) {
         if (undefined === args) {
@@ -480,6 +491,13 @@ in commit ${id}.`);
             }
         }
 
+        this.d_state = STATE.DEFAULT;
+        if ("state" in args) {
+            const state = args.state;
+            assert.oneOf(state, Object.values(STATE), "state");
+            this.d_state = state;
+        }
+
         Object.freeze(this);
     }
 
@@ -563,6 +581,14 @@ in commit ${id}.`);
     }
 
     /**
+     * @property {STATE} state if not STATE.DEFAULT, the special state of the
+     * repository
+     */
+    get state() {
+        return this.d_state;
+    }
+
+    /**
      * Accumulate the specified `changes` into the specified `dest` map.  A
      * non-null value in `changes` overrides any existing value in `dest`; a
      * `null value causes the path mapped to `null` to be removed.  The
@@ -627,6 +653,7 @@ in commit ${id}.`);
             workdir: ("workdir" in args) ? args.workdir : this.d_workdir,
             openSubmodules: ("openSubmodules" in args) ?
                 args.openSubmodules : this.d_openSubmodules,
+            state: ("state" in args) ? args.state : this.d_state,
         });
     }
 
@@ -695,4 +722,6 @@ in commit ${id}.`);
 AST.Commit = Commit;
 AST.Remote = Remote;
 AST.Submodule = Submodule;
+AST.STATE = STATE;
+Object.freeze(AST);
 module.exports = AST;
