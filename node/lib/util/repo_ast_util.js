@@ -412,7 +412,7 @@ ${colorExp(expected.currentBranchName)}`
         });
     }
 
-    // Finally, check open submodules
+    // check open submodules
 
     function missingActualOpenSubmodule(name) {
         result.push(`missing open submodule ${colorBad(name)}`);
@@ -435,6 +435,14 @@ ${colorExp(expected.currentBranchName)}`
                 missingActualOpenSubmodule,
                 missingExpectedOpenSubmodule,
                 compareOpenSubmodules);
+
+    // check state
+
+    if (actual.state !== expected.state) {
+        result.push(`\
+state is ${colorAct(actual.state)} but expected ${colorExp(expected.state)}`
+                   );
+    }
 
     return result;
 }

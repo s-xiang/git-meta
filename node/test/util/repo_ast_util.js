@@ -159,6 +159,7 @@ describe("RepoAstUtil", function () {
                     index: { y: aSubmodule },
                     workdir: { foo: "bar" },
                     openSubmodules: { y: anAST },
+                    state: AST.STATE.REBASING,
                 }),
                 expected: new AST({
                     commits: { "1": aCommit},
@@ -170,6 +171,7 @@ describe("RepoAstUtil", function () {
                     index: { y: aSubmodule },
                     workdir: { foo: "bar" },
                     openSubmodules: { y: anAST },
+                    state: AST.STATE.REBASING,
                 }),
             },
             "wrong commit": {
@@ -264,6 +266,13 @@ describe("RepoAstUtil", function () {
                     workdir: { foo: "bar" },
                     openSubmodules: { y: anAST },
                 }),
+                fails: true,
+            },
+            "wrong state": {
+                actual: new AST({
+                    state: AST.STATE.REBASING,
+                }),
+                expected: new AST(),
                 fails: true,
             },
             "no current branch": {
@@ -775,8 +784,15 @@ describe("RepoAstUtil", function () {
         const c2 = new Commit({ changes: { baz: "bam" } });
         const child = new Commit({ parents: ["1"] });
         const cases = {
-            "sipmlest": {
+            "simplest": {
                 original: new AST(),
+                url: "foo",
+                expected: new AST({
+                    remotes: { origin: new Remote("foo") },
+                }),
+            },
+            "state not cloned": {
+                original: new AST({ state: AST.STATE.REBASING}),
                 url: "foo",
                 expected: new AST({
                     remotes: { origin: new Remote("foo") },
