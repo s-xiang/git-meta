@@ -1245,5 +1245,25 @@ describe("readRAST", function () {
         RepoASTUtil.assertEqualASTs(ast, expected);
     }));
 
+    it("bisecting", co.wrap(function *() {
+        const r = yield TestUtil.createSimpleRepository();
+        const baseAST = yield astFromSimpleRepo(r);
+        const baseAST  = yield ReadRepoASTUtil.readRAST(r);
+        const headId = yield r.getHeadCommit();
+        const commit = headId.id().tostrS();
+        let commits = {};
+        commits[commit] = new Commit({
+            changes: { "README.md": ""},
+            message: "first commit",
+        });
+        const expected = new RepoAST({
+            commits: commits,
+            branches: { "master": commit },
+            head: commit,
+            currentBranchName: "master",
+        });
+        RepoASTUtil.assertEqualASTs(ast, expected);
+    }));
+
 });
 
