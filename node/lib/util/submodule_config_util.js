@@ -344,3 +344,101 @@ exports.initSubmoduleAndRepo = co.wrap(function *(repoUrl,
 
     return result;
 });
+
+/**
+ * Return a dictionary mapping from submodule name to URL for the describes the
+ * submodule state resulting from merging the specified `lhs` and `rhs`
+ * dictionaries, who have the specified `mergeBase` dictionary as their merge
+ * base; or, `null` if there is a conflict between the two that cannot be
+ * resolved.
+ *
+ * @param {Object} lhs
+ * @param {Object} rhs
+ * @param {Object} mergeBase
+ * @return {Object|null}
+ */
+exports.mergeSubmoduleConfigs = function (lhs, rhs, mergeBase) {
+    assert.isObject(lhs);
+    assert.isObject(rhs);
+    assert.isObject(mergeBase);
+
+    let result = {};
+    let lhsValue;
+    let rhsValue;
+    let mergeBaseValue;
+
+    // First, loop through `lhs`.  For each value, if we do not find a
+    // conflict, and the value hasn't been removed in `rhs`, copy it into
+    // `result`.
+
+    for (let key in lhs) {
+        lhsValue = lhs[key];
+        rhsValue = rhs[key];
+        mergeBaseValue = mergeBase[key];
+
+        // If the value has changed between left and right, and the right is
+        // not the same as what was in the mergeBase, we have a conflict.
+
+        if (lhsValue !== rhsValue &&
+            rhsValue !== mergeBaseValue &&
+            lhsValue !== mergeBaseValue) {
+            return null;
+        }
+
+        // If the value does not exist in `rhs` but did in `mergeBase`, then
+        // the `rhs` has removed it.  Otherwise, copy it into `result.
+
+        else if (undefined !== rhsValue || undefined === mergeBaseValue) {
+            result[key] = lhsValue;
+        }
+
+    }
+    for (let key in rhs) {
+        lhsValue = result[key];  // use 'result' as it may be smaller
+        rhsValue = rhs[key];
+        mergeBaseValue = mergeBase[key];
+
+        // We will have a conflict only when the value doesn't exist in 'lhs'
+        // -- otherwise, it would have been detected already.  So, a conflict
+        // exists when it's gone from the `lhs`, but present in the `rhs`, and
+        // there is a value in `mergeBase` that's different from `lhs`.
+
+        if (undefined === lhsValue &&
+            undefined !== mergeBaseValue &&
+            rhsValue !== mergeBaseValue) {
+            return null;
+        }
+
+        // Otherwise, we want to copy the value over if it's a change.
+
+        else if (rhsValue !== mergeBaseValue) {
+            result[key] = rhsValue;
+        }
+    }
+    return result;
+};
+
+/**
+ * Return the text for a `.gitmodules` file containing the specified
+ * `submodules` definitions.
+ *
+ * @param {Object} submodules
+ * @return {String}
+ */
+exports.writeConfigText = function (values) {
+    assert.isObject(values);
+    let result = "";
+    const keys = Object.keys(values).sort();
+    let name;
+    let url;
+    for (let i = 0; i < keys.length; ++i) {
+        name = keys[i];
+        url = values[name];
+        result += `\
+[submodule "${name}"]
+\tpath = ${name}
+\turl = ${url}
+`;
+    }
+    return result;
+};

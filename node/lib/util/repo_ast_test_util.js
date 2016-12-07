@@ -332,10 +332,15 @@ exports.testMultiRepoManipulator =
             repo = yield NodeGit.Repository.open(path);
         }
         const newAST = yield ReadRepoASTUtil.readRAST(repo);
+        if ("x" === repoName) {
+            console.log(JSON.stringify(newAST.commits, null, 4));
+        }
         actualASTs[repoName] = RepoASTUtil.mapCommitsAndUrls(newAST,
                                                              commitMap,
                                                              urlMap);
     }
+
+    console.log(JSON.stringify(actualASTs.x));
 
     RepoASTUtil.assertEqualRepoMaps(actualASTs, expectedASTs);
 });
