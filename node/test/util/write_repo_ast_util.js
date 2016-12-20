@@ -43,6 +43,58 @@ const WriteRepoASTUtil    = require("../../lib/util/write_repo_ast_util");
 
 describe("WriteRepoASTUtil", function () {
 
+    describe("levelizeCommitTrees", function () {
+        // We are going to cheat here and use `ShorthandParserUtil` to make it
+        // easy to describe commits, though we'll not use any other part of the
+        // ASTs.  If input is a string, we parse it; otherwise, we consider it
+        // to be a commit map.  We will sort the result vectors returned by
+        // `levelizeCommitTrees`.
+
+        const cases = {
+            "trivial": {
+                input: {},
+                expected: []
+            },
+            "simple": {
+                input: "B",
+                expected: [["1"]],
+            },
+            "multiple": {
+                input: "B:C2-1;Bx=2",
+                expected: [["1","2"]],
+            },
+            "one dep": {
+                input: "B:C2-1;C3-1 x=Sa:2;Bx=2;By=3",
+                expected: [["1","2"],["3"]],
+            },
+            "two deep": {
+                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
+                expected: [["1","3"],["4"],["2"]],
+            },
+            "two by two": {
+                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:3;Bx=3;By=4;Bz=2",
+                expected: [["1","3"],["2","4"]],
+            },
+            "child same as parent": {
+                input: "B:C3-1 x=Sa:1;C2-3;Bx=2",
+                expected: [["1"],["2","3"]],
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            it(caseName, function () {
+                const c = cases[caseName];
+                let input = c.input;
+                if ("string" === typeof input) {
+                    input =
+                         ShorthandParserUtil.parseRepoShorthand(input).commits;
+                }
+                let result = WriteRepoASTUtil.levelizeCommitTrees(input);
+                result = result.map(array => array.sort());
+                assert.deepEqual(result, c.expected);
+            });
+        });
+    });
+
     describe("buildDirectoryTree", function () {
         const cases = {
             "trivial": { input: {}, expected: {}, },
@@ -83,6 +135,22 @@ describe("WriteRepoASTUtil", function () {
                     },
                 },
             },
+            "with submodule": {
+                input: { "a/b": "2", "q/r": new RepoAST.Submodule("q", "1") },
+                expected: {
+                    a: {
+                        b: "2",
+                    },
+                    q: {
+                        r: new RepoAST.Submodule("q", "1"),
+                    },
+                    ".gitmodules": `\
+[submodule "q/r"]
+\tpath = q/r
+\turl = q
+`,
+                },
+            },
         };
         Object.keys(cases).forEach((caseName) => {
             const c = cases[caseName];
@@ -90,6 +158,60 @@ describe("WriteRepoASTUtil", function () {
                 const result = WriteRepoASTUtil.buildDirectoryTree(c.input);
                 assert.deepEqual(result, c.expected);
             });
+        });
+    });
+
+    describe("writeCommits", function () {
+        // TODO: Move most of the tests from `writeRAST` into this unit as
+        // `writeRAST` is implemented in terms of `writeCommits`.
+
+        const cases = {
+            "trivial": {
+                input: new RepoAST(),
+                expected: new RepoAST(),
+                shas: [],
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                let ast = c.input;
+                if (!(ast instanceof RepoAST)) {
+                    ast = ShorthandParserUtil.parseRepoShorthand(ast);
+                }
+                let expectedAst = c.expected;
+                if (!(expectedAst instanceof RepoAST)) {
+                    expectedAst =
+                           ShorthandParserUtil.parseRepoShorthand(expectedAst);
+                }
+                const path = yield TestUtil.makeTempDir();
+                const repo = yield NodeGit.Repository.init(path, 1);
+                const oldCommitMap = {};
+                const renderCache = {};
+                const inputCommits = ast.commits;
+                const newToOld = yield WriteRepoASTUtil.writeCommits(
+                                                                  oldCommitMap,
+                                                                  renderCache,
+                                                                  repo,
+                                                                  inputCommits,
+                                                                  c.shas);
+                const shasCheck = new Set(c.shas);
+                const newAst = yield ReadRepoASTUtil.readRAST(repo);
+
+                // Same as `ast` but with commit ids remapped to new ids.
+
+                const mappedNewAst =
+                           RepoASTUtil.mapCommitsAndUrls(newAst, newToOld, {});
+
+                const newCommits = mappedNewAst.commits;
+                for (let sha in mappedNewAst) {
+                    assert(shasCheck.delete(sha),
+                           "wrote a commit not in list");
+                    RepoASTUtil.assertEqualCommits(newCommits[sha],
+                                                   inputCommits[sha]);
+                }
+                assert.equal(shasCheck.size, 0, "all commits written");
+            }));
         });
     });
 

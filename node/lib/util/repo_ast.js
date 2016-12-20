@@ -136,7 +136,7 @@ class Commit {
      * @property {String []} parents array of parent commit IDs
      */
     get parents() {
-        return deepCopy(this.d_parents);
+        return this.d_parents.slice(0);
     }
 
     /**
@@ -261,12 +261,20 @@ class AST {
      * @param {Object}      [args.notes]
      * @param {Object}      [args.openSubmodules]
      * @param {Rebase}      [args.Rebase]
+     * @param {Boolean}     [args.raw] skip expensive sanity checks
      */
     constructor(args) {
         if (undefined === args) {
             args = {};
         }
         assert.isObject(args);
+
+        let raw = false;
+
+        if ("raw" in args) {
+            assert.isBoolean(args.raw);
+            raw = args.raw;
+        }
 
         // Validate and copy commits.
 
@@ -282,36 +290,38 @@ class AST {
 
         Object.keys(commits).forEach(id => {
             const commit = commits[id];
-            assert.instanceOf(commit, Commit);
+            if (!raw) {
+                assert.instanceOf(commit, Commit);
 
-            // Validate parents exist.
+                // Validate parents exist.
 
-            const parents = commit.parents;
-            commit.parents.forEach(checkCommit, `parent of ${id}`);
+                const parents = commit.parents;
+                commit.parents.forEach(checkCommit, `parent of ${id}`);
 
-            // Validate changes:
-            // 1. that they aren't "duplicates"
-            // 2. that deletions affect files that actually exist
+                // Validate changes:
+                // 1. that they aren't "duplicates"
+                // 2. that deletions affect files that actually exist
 
-            let worktree = {};
-            if (0 !== parents.length) {
-                const firstParent = parents[0];
-                worktree = AST.renderCommit(renderCache,
-                                            commits,
-                                            firstParent);
-            }
-            const changes = commit.changes;
-            Object.keys(changes).forEach(path => {
-                const change = changes[path];
-                assert(!deeper(change, worktree[path]),
-                   `Duplicate change in commit ${id} for ${path}: ${change}.`);
-                if (null === change) {
-                    assert.property(worktree,
-                                    path,
-                                    `Deletion of non-existient path ${path} \
-in commit ${id}.`);
+                let worktree = {};
+                if (0 !== parents.length) {
+                    const firstParent = parents[0];
+                    worktree = AST.renderCommit(renderCache,
+                                                commits,
+                                                firstParent);
                 }
-            });
+                const changes = commit.changes;
+                Object.keys(changes).forEach(path => {
+                    const change = changes[path];
+                    assert(!deeper(change, worktree[path]), `\
+Duplicate change in commit ${id} for ${path}: ${change}.`);
+                    if (null === change) {
+                        assert.property(worktree,
+                                        path,
+                                        `Deletion of non-existient path \
+${path} in commit ${id}.`);
+                    }
+                });
+            }
 
             // Don't need to deep copy `Commit` objects as they are
             // frozen.
@@ -330,8 +340,10 @@ in commit ${id}.`);
         }
 
         function checkAndTraverse(commitId, message) {
-            checkCommit(commitId, message);
-            traverse(commitId);
+            if (!raw) {
+                checkCommit(commitId, message);
+                traverse(commitId);
+            }
         }
 
         // Validate and copy branches.
@@ -429,8 +441,10 @@ in commit ${id}.`);
 
         // Validate that all commits have been reached.
 
-        for (let key in commits) {
-            assert(seen.has(key), `Commit '${key}' is not reachable.`);
+        if (!raw) {
+            for (let key in commits) {
+                assert(seen.has(key), `Commit '${key}' is not reachable.`);
+            }
         }
 
         // Copy and validate index changes.
