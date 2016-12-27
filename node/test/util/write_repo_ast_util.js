@@ -171,6 +171,11 @@ describe("WriteRepoASTUtil", function () {
                 expected: new RepoAST(),
                 shas: [],
             },
+            "write one": {
+                input: "B",
+                expected: "B",
+                shas: ["1"],
+            },
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
@@ -195,6 +200,18 @@ describe("WriteRepoASTUtil", function () {
                                                                   repo,
                                                                   inputCommits,
                                                                   c.shas);
+                // We have to write a reference for each commit to make sure it
+                // will be read; `readRAST` loads only reachable commits.
+
+                for (let sha in newToOld) {
+                    const id = NodeGit.Oid.fromString(sha);
+                    yield NodeGit.Reference.create(repo,
+                                                   `refs/reach/${sha}`,
+                                                   id,
+                                                   0,
+                                                   "makde a ref");
+                }
+
                 const shasCheck = new Set(c.shas);
                 const newAst = yield ReadRepoASTUtil.readRAST(repo);
 
@@ -204,7 +221,8 @@ describe("WriteRepoASTUtil", function () {
                            RepoASTUtil.mapCommitsAndUrls(newAst, newToOld, {});
 
                 const newCommits = mappedNewAst.commits;
-                for (let sha in mappedNewAst) {
+                for (let sha in newCommits) {
+                    console.log("GOT Sha", sha);
                     assert(shasCheck.delete(sha),
                            "wrote a commit not in list");
                     RepoASTUtil.assertEqualCommits(newCommits[sha],
