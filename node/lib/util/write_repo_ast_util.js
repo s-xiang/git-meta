@@ -411,7 +411,7 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
 
     console.log(`Writing ${Object.keys(commits).length} commits.`);
 
-    const commitsByLevel = exports.levelizeCommitTrees(commits);
+    const commitsByLevel = exports.levelizeCommitTrees(commits, shas);
 
     console.log(`Created ${commitsByLevel.length} levels.`);
 
@@ -625,8 +625,11 @@ git -C '${repo.workdir()}' checkout-index -a -f
  * @param {Object} commits map from sha to `RepoAST.Commit`.
  * @return {[[]] array or arrays of shas
  */
-exports.levelizeCommitTrees = function (commits) {
+exports.levelizeCommitTrees = function (commits, shas) {
     assert.isObject(commits);
+    assert.isArray(shas);
+
+    const includedShas = new Set(shas);
 
     let result = [];
     const commitLevels = {};  // from sha to number
@@ -638,16 +641,30 @@ exports.levelizeCommitTrees = function (commits) {
         const commit = commits[sha];
         const changes = commit.changes;
         let level = 0;
+
+        // If this commit has a change that references another commit via a
+        // submodule sha, it must have a level at least one greater than that
+        // commit, if it is also in the set of shas being levelized.
+
         for (let path in changes) {
             const change = changes[path];
             if (change instanceof RepoAST.Submodule) {
-                level = Math.max(computeCommitLevel(change.sha) + 1, level);
+                if (includedShas.has(change.sha)) {
+                    level = Math.max(computeCommitLevel(change.sha) + 1,
+                                     level);
+                }
             }
         }
+
+        // Similarly, with parents, a commit's level must be greater than that
+        // of parents that are included.
+
         const parents = commit.parents;
         for (let i = 0; i < parents.length; ++i) {
             const parent = parents[i];
-            level = Math.max(level, computeCommitLevel(parent));
+            if (includedShas.has(parent)) {
+                level = Math.max(level, computeCommitLevel(parent));
+            }
         }
         commitLevels[sha] = level;
         if (result.length === level) {
@@ -657,8 +674,8 @@ exports.levelizeCommitTrees = function (commits) {
         return level;
     }
 
-    for (let sha in commits) {
-        computeCommitLevel(sha);
+    for (let i = 0; i < shas.length; ++i) {
+        computeCommitLevel(shas[i]);
     }
 
     return result;

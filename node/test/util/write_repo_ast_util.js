@@ -53,30 +53,52 @@ describe("WriteRepoASTUtil", function () {
         const cases = {
             "trivial": {
                 input: {},
+                shas: [],
                 expected: []
             },
             "simple": {
                 input: "B",
+                shas: ["1"],
                 expected: [["1"]],
+            },
+            "simple -- omitted": {
+                input: "B",
+                shas: [],
+                expected: [],
             },
             "multiple": {
                 input: "B:C2-1;Bx=2",
+                shas: ["1", "2"],
                 expected: [["1","2"]],
             },
-            "one dep": {
+            "one deep": {
                 input: "B:C2-1;C3-1 x=Sa:2;Bx=2;By=3",
+                shas: ["1", "2", "3"],
                 expected: [["1","2"],["3"]],
             },
             "two deep": {
                 input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
+                shas: ["1", "3", "4", "2"],
                 expected: [["1","3"],["4"],["2"]],
+            },
+            "skipped parent": {
+                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
+                shas: ["1", "3", "2"],
+                expected: [["1", "2", "3"]],
+            },
+            "skipped sub": {
+                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
+                shas: ["3", "4", "2"],
+                expected: [["3", "4"],["2"]],
             },
             "two by two": {
                 input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:3;Bx=3;By=4;Bz=2",
+                shas: ["1", "2", "3", "4"],
                 expected: [["1","3"],["2","4"]],
             },
             "child same as parent": {
                 input: "B:C3-1 x=Sa:1;C2-3;Bx=2",
+                shas: ["1", "2", "3"],
                 expected: [["1"],["2","3"]],
             },
         };
@@ -88,7 +110,8 @@ describe("WriteRepoASTUtil", function () {
                     input =
                          ShorthandParserUtil.parseRepoShorthand(input).commits;
                 }
-                let result = WriteRepoASTUtil.levelizeCommitTrees(input);
+                let result = WriteRepoASTUtil.levelizeCommitTrees(input,
+                                                                  c.shas);
                 result = result.map(array => array.sort());
                 assert.deepEqual(result, c.expected);
             });
@@ -171,6 +194,11 @@ describe("WriteRepoASTUtil", function () {
                 expected: new RepoAST(),
                 shas: [],
             },
+            "don't write any": {
+                input: "B",
+                expected: new RepoAST(),
+                shas: [],
+            },
             "write one": {
                 input: "B",
                 expected: "B",
@@ -222,7 +250,6 @@ describe("WriteRepoASTUtil", function () {
 
                 const newCommits = mappedNewAst.commits;
                 for (let sha in newCommits) {
-                    console.log("GOT Sha", sha);
                     assert(shasCheck.delete(sha),
                            "wrote a commit not in list");
                     RepoASTUtil.assertEqualCommits(newCommits[sha],
