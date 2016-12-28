@@ -185,24 +185,33 @@ describe("WriteRepoASTUtil", function () {
     });
 
     describe("writeCommits", function () {
-        // TODO: Move most of the tests from `writeRAST` into this unit as
-        // `writeRAST` is implemented in terms of `writeCommits`.
+        // TODO: Move unit tests relating to commits from `writeRAST` into this
+        // unit as `writeRAST` is implemented in terms of `writeCommits`.
 
         const cases = {
             "trivial": {
                 input: new RepoAST(),
-                expected: new RepoAST(),
-                shas: [],
+                shas: [[]],
             },
             "don't write any": {
                 input: "B",
-                expected: new RepoAST(),
-                shas: [],
+                shas: [[]],
             },
             "write one": {
                 input: "B",
-                expected: "B",
-                shas: ["1"],
+                shas: [["1"]],
+            },
+            "write two": {
+                input: "B:C2-1;Bmaster=2",
+                shas: [["2", "1"]],
+            },
+            "write two in waves": {
+                input: "B:C2;Bmaster=2;Bf=1",
+                shas: [["2"], ["1"]],
+            },
+            "write two connected in waves": {
+                input: "B:C2-1;Bmaster=2;Bf=1",
+                shas: [["1"], ["2"]],
             },
         };
         Object.keys(cases).forEach(caseName => {
@@ -212,50 +221,58 @@ describe("WriteRepoASTUtil", function () {
                 if (!(ast instanceof RepoAST)) {
                     ast = ShorthandParserUtil.parseRepoShorthand(ast);
                 }
-                let expectedAst = c.expected;
-                if (!(expectedAst instanceof RepoAST)) {
-                    expectedAst =
-                           ShorthandParserUtil.parseRepoShorthand(expectedAst);
-                }
                 const path = yield TestUtil.makeTempDir();
                 const repo = yield NodeGit.Repository.init(path, 1);
                 const oldCommitMap = {};
                 const renderCache = {};
                 const inputCommits = ast.commits;
-                const newToOld = yield WriteRepoASTUtil.writeCommits(
+                const written = new Set();
+                const newCommitMap = {};
+                for (let i = 0; i < c.shas.length; ++i) {
+                    const shas = c.shas[i];
+                    const newToOld = yield WriteRepoASTUtil.writeCommits(
                                                                   oldCommitMap,
                                                                   renderCache,
                                                                   repo,
                                                                   inputCommits,
-                                                                  c.shas);
-                // We have to write a reference for each commit to make sure it
-                // will be read; `readRAST` loads only reachable commits.
+                                                                  shas);
+                    Object.assign(newCommitMap, newToOld);
 
-                for (let sha in newToOld) {
-                    const id = NodeGit.Oid.fromString(sha);
-                    yield NodeGit.Reference.create(repo,
-                                                   `refs/reach/${sha}`,
-                                                   id,
-                                                   0,
-                                                   "makde a ref");
+                    // We have to write a reference for each commit to make
+                    // sure it will be read; `readRAST` loads only reachable
+                    // commits.
+
+                    for (let sha in newToOld) {
+                        const id = NodeGit.Oid.fromString(sha);
+                        yield NodeGit.Reference.create(repo,
+                                                       `refs/reach/${sha}`,
+                                                       id,
+                                                       0,
+                                                       "makde a ref");
+                    }
+
+                    const shasCheck = new Set(shas);
+                    const newAst = yield ReadRepoASTUtil.readRAST(repo);
+
+                    // Same as `ast` but with commit ids remapped to new ids.
+
+                    const mappedNewAst =
+                       RepoASTUtil.mapCommitsAndUrls(newAst, newCommitMap, {});
+
+                    const newCommits = mappedNewAst.commits;
+                    for (let sha in newCommits) {
+                        if (shasCheck.delete(sha)) {
+                            RepoASTUtil.assertEqualCommits(newCommits[sha],
+                                                           inputCommits[sha]);
+                        }
+                        else {
+                            assert(written.has(sha), `\
+${sha} not in written list ${JSON.stringify(written)}`);
+                        }
+                        written.add(sha);
+                    }
+                    assert.equal(shasCheck.size, 0, "all commits written");
                 }
-
-                const shasCheck = new Set(c.shas);
-                const newAst = yield ReadRepoASTUtil.readRAST(repo);
-
-                // Same as `ast` but with commit ids remapped to new ids.
-
-                const mappedNewAst =
-                           RepoASTUtil.mapCommitsAndUrls(newAst, newToOld, {});
-
-                const newCommits = mappedNewAst.commits;
-                for (let sha in newCommits) {
-                    assert(shasCheck.delete(sha),
-                           "wrote a commit not in list");
-                    RepoASTUtil.assertEqualCommits(newCommits[sha],
-                                                   inputCommits[sha]);
-                }
-                assert.equal(shasCheck.size, 0, "all commits written");
             }));
         });
     });

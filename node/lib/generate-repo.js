@@ -32,6 +32,7 @@
 
 const ArgumentParser = require("argparse").ArgumentParser;
 const co             = require("co");
+const NodeGit        = require("nodegit");
 const rimraf         = require("rimraf");
 
 const RepoAST             = require("./util/repo_ast");
@@ -59,9 +60,17 @@ parser.addArgument(["-o", "--overwrite"], {
 });
 
 parser.addArgument(["-c", "--count"], {
-    required: true,
+    required: false,
+    defaultValue: -1,
     type: "int",
-    help: "number of meta-repo commits to generate",
+    help: "number of meta-repo commit block iterations, omit to go forever",
+});
+
+parser.addArgument(["-b", "--block-size"], {
+    required: false,
+    defaultValue: 100,
+    type: "int",
+    help: "number of commits to write at once",
 });
 
 const args = parser.parseArgs();
@@ -97,18 +106,14 @@ function generatePath(depth) {
 }
 
 
-class Commit {
-    constructor(id, changes) {
-        this.id = id;
-        this.changes = changes;
-    }
-}
-
 class State {
     constructor() {
+        this.renderCache      = {};     // used in writing commits
+        this.oldCommitMap     = {};     // maps logical to physical sha
+        this.commits          = {};     // logical sha to RepoAST.Commit
         this.submoduleNames   = [];     // paths of all subs
-        this.submoduleCommits = {};     // map to array of commits
-        this.metaCommits      = [];     // array of commits
+        this.submoduleHeads   = {};     // map to last sub commit
+        this.metaHead         = null;   // array of shas
         this.nextCommitId     = 2;
     }
 
@@ -117,41 +122,61 @@ class State {
     }
 }
 
-function changeSubmodule(state, name) {
-    let commits = state.submoduleCommits[name];
-    if (undefined === commits) {
-        commits = [];
-        state.submoduleCommits[name] = commits;
-    }
+function makeSubCommits(state, name, madeShas) {
     const numCommits = randomInt(3) + 1;
-    let newHead = null;
+    const subHeads = state.submoduleHeads;
+    let lastHead = subHeads[name];
+    const commits = state.commits;
     for (let i = 0; i < numCommits; ++i) {
-        newHead = state.generateCommitId();
+        const newHead = state.generateCommitId();
         let changes = {};
 
         // If this subrepo already has changes, we'll go back and update a few
         // of them at random.
 
-        if (0 !== commits.length) {
+        if (undefined !== lastHead) {
+            const oldChanges = RepoAST.renderCommit(state.renderCache,
+                                                    commits,
+                                                    lastHead);
+            const paths = Object.keys(oldChanges);
             const numChanges = randomInt(4) + 1;
             for (let j = 0; j < numChanges; ++j) {
-                const commitToUpdate = commits[randomInt(commits.length)];
-                for (let path in commitToUpdate.changes) {
-                    changes[path] = state.nextCommitId + generateCharacter();
-                }
+                const pathToUpdate = paths[randomInt(paths.length)];
+                changes[pathToUpdate] =
+                                      state.nextCommitId + generateCharacter();
             }
         }
+
         // Add a path if there are no commits yet, or on a 1/3 chance
-        if (0 === commits.length || 0 === randomInt(3)) {
+
+        if (undefined === lastHead || 0 === randomInt(3)) {
             const path = generatePath(randomInt(7) + 1);
             changes[path] = state.nextCommitId + generateCharacter();
         }
-        commits.push(new Commit(newHead, changes));
+        const parents = undefined === lastHead ? [] : [lastHead];
+        lastHead = newHead;
+        subHeads[name] = newHead;
+        const commit = new RepoAST.Commit({
+            parents: parents,
+            changes: changes,
+            message: `a random commit for sub ${name}, #${newHead}`,
+        });
+        madeShas.push(newHead);
+        commits[newHead] = commit;
     }
-    return newHead;
+    return lastHead;
 }
 
-function makeMetaCommit(state) {
+/**
+ * Generate commits in the specified `state`, storing in the specified
+ * `metaShas` all generated commit ids and in the specified `subHeads` the
+ * shas of submodule heads referenced by meta-repo commits.
+ *
+ * @param {State}     state
+ * @param {String []} madeShas
+ * @param {String []} subHeads
+ */
+function makeMetaCommit(state, madeShas, subHeads) {
     const subsToChange = randomInt(3) + 1;
     let subPaths = {};
     const numSubs = state.submoduleNames.length;
@@ -173,7 +198,7 @@ function makeMetaCommit(state) {
     if (0 === numSubs || 0 === randomInt(5)) {
         while (true) {
             const path = generatePath(3);
-            if (!(path in state.submoduleCommits)) {
+            if (!(path in state.submoduleHeads)) {
                 subPaths[path] = true;
                 state.submoduleNames.push(path);
                 break;
@@ -181,133 +206,76 @@ function makeMetaCommit(state) {
         }
     }
 
-    let subCommits = {};
+    const changes = {};
     Object.keys(subPaths).forEach(function (path) {
-        const newHead = changeSubmodule(state, path);
-        subCommits[path] = newHead;
+        const newHead = makeSubCommits(state, path, madeShas);
+        changes[path] = new RepoAST.Submodule(".", newHead);
+        subHeads.push(newHead);
     });
     const commitId = state.generateCommitId();
-    state.metaCommits.push(new Commit(commitId, subCommits));
-}
-
-function renderMetaCommits(state) {
-    const result = {};
-    const theFirst = "the-first";
-    result[theFirst] = new RepoAST.Commit({
-        parents: [],
-        message: "I am the first commit.",
-        changes: { "README.md": "# Hello World" },
+    const lastHead = state.metaHead;
+    state.metaHead = commitId;
+    const parents = lastHead === null ? [] : [lastHead];
+    const commit = new RepoAST.Commit({
+        parents: parents,
+        changes: changes,
+        message: `a friendly meta commit, #${commitId}`,
     });
-    let lastCommit = theFirst;
-    for (let i = 0; i < state.metaCommits.length; ++i) {
-        const metaCommit = state.metaCommits[i];
-        const metaChanges = metaCommit.changes;
-        const changes = {};
-        for (let path in metaChanges) {
-            changes[path] = new RepoAST.Submodule(".", metaChanges[path]);
-        }
-        const commit = new RepoAST.Commit({
-            parents: [lastCommit],
-            message: `commit ${metaCommit.id}`,
-            changes: changes,
-        });
-        result[metaCommit.id] = commit;
-        lastCommit = metaCommit.id;
-    }
-    return result;
+    state.commits[commitId] = commit;
+    madeShas.push(commitId);
 }
 
-function renderSubCommits(state) {
-    const result = {};
-    for (let path in state.submoduleCommits) {
-        const subCommits = state.submoduleCommits[path];
-        let lastCommit = null;
-        for (let i = 0; i < subCommits.length; ++i) {
-            const commit = subCommits[i];
-            result[commit.id] = new RepoAST.Commit({
-                parents: lastCommit === null ? [] : [lastCommit],
-                changes: commit.changes,
-                message: `${commit.id} commit to ${path}`,
-            });
-            lastCommit = commit.id;
-        }
-    }
-    return result;
-}
-
-function renderRefs(state) {
-    const result = {};
-    for (let path in state.submoduleCommits) {
-        const commits = state.submoduleCommits[path];
-        const last = commits[commits.length - 1];
-        result[`commits/${last.id}`] = `${last.id}`;
-    }
-    return result;
-}
-
-function renderState(state) {
-    // Short-ciruit for base-case.
-
-    let commits = {};
-    const timer = new Stopwatch();
-    process.stdout.write(`Rendering meta commits... `);
-    Object.assign(commits, renderMetaCommits(state));
-    process.stdout.write(`took ${timer.reset()} seconds.\n`);
-    process.stdout.write(`Rendering sub commits... `);
-    Object.assign(commits, renderSubCommits(state));
-    process.stdout.write(`took ${timer.reset()} seconds.\n`);
-    process.stdout.write(`Rendering refs... `);
-    const refs = renderRefs(state);
-    process.stdout.write(`took ${timer.reset()} seconds.\n`);
-    const lastCommit = state.metaCommits[state.metaCommits.length - 1];
-    process.stdout.write(`Making AST... `);
-    const result = new RepoAST({
-        commits: commits,
-        refs: refs,
-        branches: { master: lastCommit.id },
-        raw: true,
+const renderRefs = co.wrap(function *(repo, oldCommitMap, shas) {
+    yield shas.map(sha => {
+        const target = oldCommitMap[sha];
+        const targetId = NodeGit.Oid.fromString(target);
+        return NodeGit.Reference.create(repo,
+                                        `refs/commits/${target}`,
+                                        targetId,
+                                        0,
+                                        "meta-ref");
     });
-    process.stdout.write(`took ${timer.elapsed}.\n`);
-    return result;
-}
+});
 
-function printSummary(state) {
-    let totalSubCommits = 0;
-    let totalChanges = 0;
-    Object.keys(state.submoduleCommits).forEach(name => {
-        const commits = state.submoduleCommits[name];
-        totalSubCommits += commits.length;
-        for (let i = 0; i < commits.length; ++i) {
-            totalChanges += Object.keys(commits[i]).length;
-        }
-    });
-    console.log(`Going to write ${state.metaCommits.length} meta commits, \
-${state.submoduleNames.length} submodules, ${totalSubCommits} submodule \
-commits, and ${totalChanges} changes.`);
-}
+const renderBlock = co.wrap(function *(repo, state, shas, subHeads) {
+    yield WriteRepoASTUtil.writeCommits(state.oldCommitMap,
+                                        state.renderCache,
+                                        repo,
+                                        state.commits,
+                                        shas);
+    yield renderRefs(repo, state.oldCommitMap, subHeads);
+});
 
 co(function *() {
     try {
-        const time = new Stopwatch(true);
-        process.stdout.write("Generating state... ");
-        const state = new State();
-        for (let i = 0; i < args.count; ++i) {
-            makeMetaCommit(state);
-        }
-        process.stdout.write(`took ${time.elapsed}.\n`);
-        printSummary(state);
-        const ast = renderState(state);
-        time.reset();
+        const path = args.destination;
         if (args.overwrite) {
+            const timer = new Stopwatch();
             process.stdout.write("Removing old files... ");
             yield (new Promise(callback => {
-                return rimraf(args.destination, {}, callback);
+                return rimraf(path, {}, callback);
             }));
-            process.stdout.write(`took ${time.reset()} seconds.\n`);
+            process.stdout.write(`took ${timer.elapsed} seconds.\n`);
         }
-        console.log("Writing AST...");
-        yield WriteRepoASTUtil.writeRAST(ast, args.destination);
-        console.log(`Writing AST took ${time.elapsed} seconds.`);
+        const count = args.count;
+        const blockSize = args.block_size;
+        const state = new State();
+        console.log(`Generating ${count < 0 ? "infinite" : count} blocks of \
+${blockSize} commits.`);
+        const repo = yield NodeGit.Repository.init(path, 1);
+        for (let i = 0; -1 === count || i < count; ++i) {
+            const time = new Stopwatch();
+            process.stdout.write(`Generating ${blockSize} meta commits... `);
+            const madeShas = [];
+            const subHeads = [];
+            for (let i = 0; i < blockSize; ++i) {
+                makeMetaCommit(state, madeShas, subHeads);
+            }
+            process.stdout.write(`took ${time.elapsed}.\n`);
+            process.stdout.write(`Writing ${madeShas.length} commits... `);
+            yield renderBlock(repo, state, madeShas, subHeads);
+            process.stdout.write(`took ${time.elapsed} seconds.\n`);
+        }
     }
     catch(e) {
         console.error(e.stack);

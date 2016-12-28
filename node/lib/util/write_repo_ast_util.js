@@ -50,7 +50,7 @@ const RebaseFileUtil      = require("./rebase_file_util");
 const RepoAST             = require("./repo_ast");
 const RepoASTUtil         = require("./repo_ast_util");
 const SubmoduleConfigUtil = require("./submodule_config_util");
-const Stopwatch           = require("./stopwatch");
+//const Stopwatch           = require("./stopwatch");
 const TestUtil            = require("./test_util");
 
                          // Begin module-local methods
@@ -244,15 +244,11 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
     // Write out the levels in order of least to most dependent.
 
     const writeLevel = co.wrap(function *(treeLevel, index) {
-        const timer = new Stopwatch();
         const tempPath = path.join(tempDir, "" + index);
         const stream = fs.createWriteStream(tempPath);
         const pathEntries = treeLevel.paths;
         const dataEntries = treeLevel.data;
-        const total = dataEntries.reduce((total, arr) => total + arr.length,
-                                         0);
-        process.stdout.write(`Writing tree level ${index} containing \
-${dataEntries.length} trees and ${total} total entries... `);
+
         // Each "entry" is a tree to write
 
         for (let i = 0; i < pathEntries.length; ++i) {
@@ -281,10 +277,7 @@ ${dataEntries.length} trees and ${total} total entries... `);
             }
         }
         yield closeStream(stream);
-        process.stdout.write(`took ${timer.reset()} seconds.\n`);
-        process.stdout.write(`Inovking Git mktree... `);
         treeLevel.resultIds = yield execMakeTree(repo, tempPath);
-        process.stdout.write(`took ${timer.elapsed} seconds.\n`);
     });
 
     // Write out the levels in order.
@@ -360,8 +353,13 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
 
         let newParents = [];  // Array of commit IDs
         for (let i = 0; i < parents.length; ++i) {
-            let parentSha = yield commitWriters[parents[i]];
-            newParents.push(commitObjs[parentSha]);
+            const parent = parents[i];
+            let parentSha = oldCommitMap[parent];
+            if (undefined === parentSha) {
+                parentSha = yield commitWriters[parent];
+            }
+            const parentCommit = yield repo.getCommit(parentSha);
+            newParents.push(parentCommit);
         }
 
         // Calculate the tree.  `tree` describes the directory tree specified
@@ -388,37 +386,24 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
     });
 
     const writeCommitSet = co.wrap(function *(shas) {
-        const timer = new Stopwatch();
-        process.stdout.write(`Rendering trees... `);
         const trees = shas.map(sha => {
             const flatTree = RepoAST.renderCommit(renderCache, commits, sha);
             return exports.buildDirectoryTree(flatTree);
         });
-        process.stdout.write(`took ${timer.reset()} seconds.\n`);
-        process.stdout.write(`Writting commit trees.\n`);
         const treeIds = yield writeCommitTrees(repo, trees, oldCommitMap);
         treeIds.forEach((treeId, index) => {
             const sha = shas[index];
             commitWriters[sha] = writeCommit(sha, treeId);
         });
-        process.stdout.write(`Writing commit trees took ${timer.reset()}.\n`);
-        process.stdout.write(`Writing ${shas.length} commits... `);
         yield DoWorkQueue.doInParallel(shas, sha => {
             return commitWriters[sha];
         });
-        process.stdout.write(`took ${timer.elapsed} seconds.\n`);
     });
-
-    console.log(`Writing ${Object.keys(commits).length} commits.`);
 
     const commitsByLevel = exports.levelizeCommitTrees(commits, shas);
 
-    console.log(`Created ${commitsByLevel.length} levels.`);
-
     for (let i = 0; i < commitsByLevel.length; ++i) {
         const level = commitsByLevel[i];
-        console.log(`Writing level ${i + 1}/${commitsByLevel.length} \
-containing ${level.length} commits.`);
         yield writeCommitSet(level);
     }
     return newCommitMap;
@@ -709,10 +694,6 @@ exports.buildDirectoryTree = function (flatTree) {
             const nextPath = paths[i];
             if (nextPath in tree) {
                 tree = tree[nextPath];
-                if ("object" !== typeof tree) {
-                    console.log(JSON.stringify(flatTree, null, 4));
-                    console.log(JSON.stringify(result, null, 4));
-                }
                 assert.isObject(tree, `for path ${path}`);
             }
             else {
@@ -769,17 +750,10 @@ exports.writeRAST = co.wrap(function *(ast, path) {
 
     const repo = yield NodeGit.Repository.init(path, ast.bare ? 1 : 0);
 
-    console.log("Starting to write at", path);
-
     yield configRepo(repo);
 
     const commits = yield writeAllCommits(repo, ast.commits);
-
-    console.log("Wrote commits");
-
     const resultRepo = yield configureRepo(repo, ast, commits.oldToNew);
-
-    console.log("Did configuration");
 
     return {
         repo: resultRepo,
