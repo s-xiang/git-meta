@@ -42,7 +42,9 @@ function nextTick() {
 }
 
 describe("DoWorkQueue", function () {
-    it("breathing", co.wrap(function *() {
+    // TODO: These guys need more rigorous test drivers.
+
+    it("doInParallel", co.wrap(function *() {
         let work = [];
         let expected = [];
         const NUM_TO_DO = 323;
@@ -58,6 +60,25 @@ describe("DoWorkQueue", function () {
             });
         }
         const result = yield DoWorkQueue.doInParallel(work, getWork);
+        assert.equal(result.length, NUM_TO_DO);
+        assert.deepEqual(result, expected);
+    }));
+
+    it("doInBatches", co.wrap(function *() {
+        let work = [];
+        let expected = [];
+        const NUM_TO_DO = 323;
+        for (let i = 0; i < NUM_TO_DO; ++i) {
+            work.push(i);
+            expected.push(i * 2);
+        }
+        function getWork(values) {
+            return co(function *() {
+                yield nextTick();
+                return values.map(x => x * 2);
+            });
+        }
+        const result = yield DoWorkQueue.doInBatches(work, 10, getWork);
         assert.equal(result.length, NUM_TO_DO);
         assert.deepEqual(result, expected);
     }));

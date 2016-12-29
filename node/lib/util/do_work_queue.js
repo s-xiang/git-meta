@@ -76,3 +76,33 @@ exports.doInParallel = co.wrap(function *(queue, getWork) {
     yield work;
     return result;
 });
+
+/**
+ * Divide the specified `queue` into the specified number of `batches`; use the
+ * specified `getWork` function to get a promise to execute a batch of work; it
+ * must return an array containing a result for each item in the batch.  Return
+ * an array containing the complete set of results, such that each item in the
+ * array is in the same order as the input `queue`.
+ *
+ * @async
+ * @param {Array}                    queue
+ * @param {Number}                   batches
+ * @param {(Array, Number)  => Promise (Array)} getWork
+ */
+exports.doInBatches = co.wrap(function *(queue, batches, getWork) {
+    assert.isArray(queue);
+    assert.isNumber(batches);
+    assert.isFunction(getWork);
+
+    // Compute the size of batches to use so that we execute `batches` number
+    // of batches if possible, or 1 otherwise.
+
+    const queueCopy = queue.slice(0);
+    const batchSize  = Math.ceil(queue.length / batches);
+    const batchedQueue = [];
+    while (0 !== queueCopy.length) {
+        batchedQueue.push(queueCopy.splice(0, batchSize));
+    }
+    const batchedResults = yield batchedQueue.map(getWork);
+    return batchedResults.reduce((acc, next) => acc.concat(next), []);
+});
