@@ -65,7 +65,10 @@ cat '${path}' | git -C '${repo.path()}' mktree --batch`;
     catch (e) {
         throw e;
     }
-    return result.stdout.split("\n");
+
+    // Last one is always empty; remove it.
+    const ids = result.stdout.split("\n");
+    return ids.slice(0, ids.length - 1);
 });
 
 function closeStream(stream) {
@@ -244,40 +247,44 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
     // Write out the levels in order of least to most dependent.
 
     const writeLevel = co.wrap(function *(treeLevel, index) {
-        const tempPath = path.join(tempDir, "" + index);
-        const stream = fs.createWriteStream(tempPath);
         const pathEntries = treeLevel.paths;
         const dataEntries = treeLevel.data;
+        const writeBatch = co.wrap(function *(batchPaths, offset) {
+            const tempPath = path.join(tempDir, "" + index + "." + offset);
+            const stream = fs.createWriteStream(tempPath);
+            for (let i = 0; i < batchPaths.length; ++i) {
+                const paths = batchPaths[i];
+                const dataEntry = dataEntries[i + offset];
 
-        // Each "entry" is a tree to write
+                // Each of these is one line in the tree.
 
-        for (let i = 0; i < pathEntries.length; ++i) {
-            const paths = pathEntries[i];
-            const dataEntry = dataEntries[i];
-            if (0 !== i) {
-                stream.write("\n");
+                if (0 !== i) {
+                    stream.write("\n");
+                }
+
+                for (let j = 0; j < paths.length; ++j) {
+                    const path = paths[j];
+                    const data = dataEntry[j];
+                    if ("number" === typeof data) {
+                        const blob = blobData[data];
+                        stream.write(`100644 blob ${blob}\t${path}\n`);
+                    }
+                    else if ("string" === typeof data) {
+                        stream.write(`160000 commit ${data}\t${path}\n`);
+                    }
+                    else {
+                        const treeId =
+                                     levels[data.level].resultIds[data.offset];
+                        stream.write(`040000 tree ${treeId}\t${path}\n`);
+                    }
+                }
             }
-
-            // Each of these is one line in the tree.
-
-            for (let j = 0; j < paths.length; ++j) {
-                const path = paths[j];
-                const data = dataEntry[j];
-                if ("number" === typeof data) {
-                    const blob = blobData[data];
-                    stream.write(`100644 blob ${blob}\t${path}\n`);
-                }
-                else if ("string" === typeof data) {
-                    stream.write(`160000 commit ${data}\t${path}\n`);
-                }
-                else {
-                    const treeId = levels[data.level].resultIds[data.offset];
-                    stream.write(`040000 tree ${treeId}\t${path}\n`);
-                }
-            }
-        }
-        yield closeStream(stream);
-        treeLevel.resultIds = yield execMakeTree(repo, tempPath);
+            yield closeStream(stream);
+            return yield execMakeTree(repo, tempPath);
+        });
+        treeLevel.resultIds = yield DoWorkQueue.doInBatches(pathEntries,
+                                                            4,
+                                                            writeBatch);
     });
 
     // Write out the levels in order.
