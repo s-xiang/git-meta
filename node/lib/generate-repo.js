@@ -262,7 +262,9 @@ co(function *() {
         const state = new State();
         console.log(`Generating ${count < 0 ? "infinite" : count} blocks of \
 ${blockSize} commits.`);
+        const totalTime = new Stopwatch();
         const repo = yield NodeGit.Repository.init(path, 1);
+        let totalCommits = 0;
         for (let i = 0; -1 === count || i < count; ++i) {
             const time = new Stopwatch();
             process.stdout.write(`Generating ${blockSize} meta commits... `);
@@ -271,10 +273,12 @@ ${blockSize} commits.`);
             for (let i = 0; i < blockSize; ++i) {
                 makeMetaCommit(state, madeShas, subHeads);
             }
+            totalCommits += blockSize;
             process.stdout.write(`took ${time.elapsed}.\n`);
-            process.stdout.write(`Writing ${madeShas.length} commits... `);
             yield renderBlock(repo, state, madeShas, subHeads);
-            process.stdout.write(`took ${time.elapsed} seconds.\n`);
+            process.stdout.write(`Writing ${madeShas.length} commits and \
+${subHeads.length} changed subs, took ${time.elapsed} seconds.  Commit \
+rate ${totalCommits / totalTime.elapsed}/S.\n`);
         }
     }
     catch(e) {
