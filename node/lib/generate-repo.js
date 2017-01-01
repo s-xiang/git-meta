@@ -31,12 +31,18 @@
  */
 
 const ArgumentParser = require("argparse").ArgumentParser;
+const assert         = require("chai").assert;
 const co             = require("co");
+const fs             = require("fs-promise");
 const NodeGit        = require("nodegit");
+const path           = require("path");
 const rimraf         = require("rimraf");
 
+const GitUtil             = require("./util/git_util");
 const RepoAST             = require("./util/repo_ast");
 const Stopwatch           = require("./util/stopwatch");
+const TestUtil            = require("./util/test_util");
+const SyntheticBranchUtil = require("./util/synthetic_branch_util");
 const WriteRepoASTUtil    = require("./util/write_repo_ast_util");
 
 const description = `Write the repos described by a string having the syntax \
@@ -75,6 +81,11 @@ parser.addArgument(["-b", "--block-size"], {
 
 const args = parser.parseArgs();
 
+// From repository.h
+
+const BARE   = 1 << 0;
+const MKPATH = 1 << 4;
+
 /**
  * Return a random integer in the range of [0, max).
  * 
@@ -105,16 +116,52 @@ function generatePath(depth) {
     return result + generateCharacter();
 }
 
+class Submodule {
+    constructor() {
+        this.renderCache = {};  // accumulated changes per commit
+        this.commits = {};      // logical sha to commit
+        this.repo    = null;    // NodeGit.Repository, setup in `getRepo`
+        this.head    = null;    // current head
+
+        this.newShas         = [];  // shas created in latest batch
+        this.referencedHeads = [];  // referenced in most recent meta commits
+    }
+}
+
+Submodule.prototype.getRepo = co.wrap(function *(origin, tempDir, name) {
+    assert.isString(origin);
+    assert.isString(tempDir);
+    assert.isString(name);
+
+    if (null !== this.repo) {
+        return this.repo;
+    }
+
+    const dir = path.join(tempDir, name);
+
+    this.repo = yield NodeGit.Repository.initExt(dir, {
+        originUrl: origin,
+        flags: BARE | MKPATH,
+        bare: 1,
+    });
+    return this.repo;
+});
 
 class State {
     constructor() {
-        this.renderCache      = {};     // used in writing commits
-        this.oldCommitMap     = {};     // maps logical to physical sha
-        this.commits          = {};     // logical sha to RepoAST.Commit
-        this.submoduleNames   = [];     // paths of all subs
-        this.submoduleHeads   = {};     // map to last sub commit
-        this.metaHead         = null;   // array of shas
-        this.nextCommitId     = 2;
+        this.tempDir          = null;       // root temp directory
+        this.subsDir          = null;       // where sub repos live
+        this.renderCache      = {};         // used in writing commits
+        this.oldCommitMap     = {};         // maps logical to physical sha
+        this.metaCommits      = {};         // logical sha to RepoAST.Commit
+        this.submoduleNames   = [];         // paths of all subs
+        this.submodules       = {};         // name to `Submodule` object
+        this.metaRepo         = null;       // where meta commits are made
+        this.mongoRepo        = null;       // the repo with all commits
+        this.metaHead         = null;       // array of shas
+        this.newMetaShas      = [];         // shas in latet block
+        this.updatedSubs      = new Set();  // names of subs changed in block
+        this.nextCommitId     = 0;
     }
 
     generateCommitId() {
@@ -122,11 +169,36 @@ class State {
     }
 }
 
-function makeSubCommits(state, name, madeShas) {
+State.create = co.wrap(function *(targetDir) {
+    assert.isString(targetDir);
+
+    const res = new State();
+    res.tempDir = yield TestUtil.makeTempDir();
+    res.subsDir = path.join(res.tempDir, "subs");
+    yield fs.mkdir(res.subsDir);
+
+    res.mongoRepo = yield NodeGit.Repository.initExt(targetDir, {
+        flags: BARE | MKPATH,
+        bare: 1,
+    });
+
+    const metaDir = path.join(res.tempDir, "meta");
+    res.metaRepo = yield NodeGit.Repository.initExt(metaDir, {
+        originUrl: res.mongoRepo.path(),
+        flags: BARE | MKPATH,
+        bare: 1,
+    });
+
+    return res;
+});
+
+function makeSubCommits(state, name) {
+    let sub = state.submodules[name];
+    if (undefined === sub) {
+        sub = new Submodule();
+        state.submodules[name] = sub;
+    }
     const numCommits = randomInt(3) + 1;
-    const subHeads = state.submoduleHeads;
-    let lastHead = subHeads[name];
-    const commits = state.commits;
     for (let i = 0; i < numCommits; ++i) {
         const newHead = state.generateCommitId();
         let changes = {};
@@ -134,10 +206,10 @@ function makeSubCommits(state, name, madeShas) {
         // If this subrepo already has changes, we'll go back and update a few
         // of them at random.
 
-        if (undefined !== lastHead) {
-            const oldChanges = RepoAST.renderCommit(state.renderCache,
-                                                    commits,
-                                                    lastHead);
+        if (null !== sub.head) {
+            const oldChanges = RepoAST.renderCommit(sub.renderCache,
+                                                    sub.commits,
+                                                    sub.head);
             const paths = Object.keys(oldChanges);
             const numChanges = randomInt(4) + 1;
             for (let j = 0; j < numChanges; ++j) {
@@ -149,36 +221,37 @@ function makeSubCommits(state, name, madeShas) {
 
         // Add a path if there are no commits yet, or on a 1/3 chance
 
-        if (undefined === lastHead || 0 === randomInt(3)) {
+        if (null === sub.head || 0 === randomInt(3)) {
             const path = generatePath(randomInt(7) + 1);
             changes[path] = state.nextCommitId + generateCharacter();
         }
-        const parents = undefined === lastHead ? [] : [lastHead];
-        lastHead = newHead;
-        subHeads[name] = newHead;
+        const parents = null === sub.head ? [] : [sub.head];
+        sub.head = newHead;
+        sub.newShas.push(newHead);
         const commit = new RepoAST.Commit({
             parents: parents,
             changes: changes,
             message: `a random commit for sub ${name}, #${newHead}`,
         });
-        madeShas.push(newHead);
-        commits[newHead] = commit;
+
+        sub.commits[newHead] = commit;
     }
-    return lastHead;
+
+    // The last head generated will be referenced by a meta commit; remembrer
+    // it so that we will generate a ref for it later.
+
+    sub.referencedHeads.push(sub.head);
+    return sub.head;
 }
 
 /**
- * Generate commits in the specified `state`, storing in the specified
- * `metaShas` all generated commit ids and in the specified `subHeads` the
- * shas of submodule heads referenced by meta-repo commits.
+ * Generate commits in the specified `state`.
  *
  * @param {State}     state
- * @param {String []} madeShas
- * @param {String []} subHeads
  */
-function makeMetaCommit(state, madeShas, subHeads) {
+function makeMetaCommit(state) {
     const subsToChange = randomInt(3) + 1;
-    let subPaths = {};
+    const subPaths = new Set();
     const numSubs = state.submoduleNames.length;
 
     if (0 !== numSubs) {
@@ -188,7 +261,7 @@ function makeMetaCommit(state, madeShas, subHeads) {
             const index = randomInt(numSubs);
             const name = state.submoduleNames[index];
             if (!(name in subPaths)) {
-                subPaths[name] = true;
+                subPaths.add(name);
             }
         }
     }
@@ -198,8 +271,8 @@ function makeMetaCommit(state, madeShas, subHeads) {
     if (0 === numSubs || 0 === randomInt(5)) {
         while (true) {
             const path = generatePath(3);
-            if (!(path in state.submoduleHeads)) {
-                subPaths[path] = true;
+            if (!(path in state.submodules)) {
+                subPaths.add(path);
                 state.submoduleNames.push(path);
                 break;
             }
@@ -207,10 +280,10 @@ function makeMetaCommit(state, madeShas, subHeads) {
     }
 
     const changes = {};
-    Object.keys(subPaths).forEach(function (path) {
-        const newHead = makeSubCommits(state, path, madeShas);
+    subPaths.forEach(function (path) {
+        const newHead = makeSubCommits(state, path);
         changes[path] = new RepoAST.Submodule(".", newHead);
-        subHeads.push(newHead);
+        state.updatedSubs.add(path);
     });
     const commitId = state.generateCommitId();
     const lastHead = state.metaHead;
@@ -221,29 +294,67 @@ function makeMetaCommit(state, madeShas, subHeads) {
         changes: changes,
         message: `a friendly meta commit, #${commitId}`,
     });
-    state.commits[commitId] = commit;
-    madeShas.push(commitId);
+    state.metaCommits[commitId] = commit;
+    state.newMetaShas.push(commitId);
 }
 
-const renderRefs = co.wrap(function *(repo, oldCommitMap, shas) {
-    yield shas.map(sha => {
-        const target = oldCommitMap[sha];
-        const targetId = NodeGit.Oid.fromString(target);
-        return NodeGit.Reference.create(repo,
-                                        `refs/commits/${target}`,
-                                        targetId,
-                                        0,
-                                        "meta-ref");
-    });
-});
+const renderBlock = co.wrap(function *(state) {
+    let totalCommits = 0;
+    console.log("#", Array.from(state.updatedSubs).length);
+    const timer = new Stopwatch();
+    yield Array.from(state.updatedSubs).map(co.wrap(function *(subName) {
+        const sub = state.submodules[subName];
+        totalCommits += sub.newShas.length;
+        const subRepo = yield sub.getRepo(state.mongoRepo.path(),
+                                          state.subsDir,
+                                          subName);
+        yield WriteRepoASTUtil.writeCommits(state.oldCommitMap,
+                                            sub.renderCache,
+                                            subRepo,
+                                            sub.commits,
+                                            sub.newShas);
+        sub.newShas = [];
 
-const renderBlock = co.wrap(function *(repo, state, shas, subHeads) {
+        // Move 'master' to point to the new head to anchor commits.
+
+        const newHeadSha = state.oldCommitMap[sub.head];
+        yield NodeGit.Reference.create(subRepo,
+                                       "refs/heads/master",
+                                       newHeadSha,
+                                       1,
+                                       "m");
+
+        // Push meta-refs
+
+        yield sub.referencedHeads.map(co.wrap(logicalSha=> {
+            const sha = state.oldCommitMap[logicalSha];
+            const name = SyntheticBranchUtil.getSyntheticBranchForCommit(sha);
+            return GitUtil.push(subRepo, "origin", sha, name, false, true);
+        }));
+        sub.referencedHeads = [];
+    }));
+    console.log("SUBS TOOK:", timer.elapsed);
+    state.updatedSubs = new Set();
     yield WriteRepoASTUtil.writeCommits(state.oldCommitMap,
                                         state.renderCache,
-                                        repo,
-                                        state.commits,
-                                        shas);
-    yield renderRefs(repo, state.oldCommitMap, subHeads);
+                                        state.metaRepo,
+                                        state.metaCommits,
+                                        state.newMetaShas);
+    totalCommits += state.newMetaShas.length;
+    state.newMetaShas = [];
+    const headId = state.oldCommitMap[state.metaHead];
+    yield NodeGit.Reference.create(state.metaRepo,
+                                   "refs/heads/master",
+                                   headId,
+                                   1,
+                                   "meta master");
+    yield GitUtil.push(state.metaRepo,
+                       "origin",
+                       headId,
+                       "master",
+                       false,
+                       true);
+    return totalCommits;
 });
 
 co(function *() {
@@ -257,24 +368,24 @@ co(function *() {
             }));
             process.stdout.write(`took ${timer.elapsed} seconds.\n`);
         }
+        const totalTime = new Stopwatch();
         const count = args.count;
         const blockSize = args.block_size;
-        const state = new State();
+        const state = yield State.create(path);
         console.log(`Generating ${count < 0 ? "infinite" : count} blocks of \
 ${blockSize} commits.`);
-        const repo = yield NodeGit.Repository.init(path, 1);
+        let totalMetaCommits = 0;
+        let totalCommits = 0;
         for (let i = 0; -1 === count || i < count; ++i) {
-            const time = new Stopwatch();
-            process.stdout.write(`Generating ${blockSize} meta commits... `);
-            const madeShas = [];
-            const subHeads = [];
             for (let i = 0; i < blockSize; ++i) {
-                makeMetaCommit(state, madeShas, subHeads);
+                makeMetaCommit(state);
             }
-            process.stdout.write(`took ${time.elapsed}.\n`);
-            process.stdout.write(`Writing ${madeShas.length} commits... `);
-            yield renderBlock(repo, state, madeShas, subHeads);
-            process.stdout.write(`took ${time.elapsed} seconds.\n`);
+            const count = yield renderBlock(state);
+            totalMetaCommits += args.block_size;
+            totalCommits += count;
+            console.log(`Written ${totalMetaCommits} meta commits at rate of \
+${totalMetaCommits / totalTime.elapsed}/S, ${totalCommits} commits at rate of \
+${totalCommits / totalTime.elapsed}/S, total elapsed: ${totalTime.elapsed}.`);
         }
     }
     catch(e) {
