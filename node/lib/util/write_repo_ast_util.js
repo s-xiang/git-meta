@@ -68,32 +68,6 @@ const treeTime = new Stopwatch(true);
 let maxRes = 0;
                          // Begin module-local methods
 
-const execMakeTree = co.wrap(function *(repo, path, outPath) {
-    try {
-        const command = `\
-cat '${path}' | git -C '${repo.path()}' mktree --batch > ${outPath}`;
-        yield exec(command, { maxBuffer: 50000000 });
-    }
-    catch (e) {
-        throw e;
-    }
-    readTime.start();
-    const result = (yield fs.readFile(outPath, "utf-8")).split("\n");
-    maxRes = Math.max(maxRes, result.length);
-    const ret = result.slice(0, result.length - 1);
-    readTime.stop();
-    return ret;
-});
-
-function closeStream(stream) {
-    return new Promise(callback => {
-        stream.on("finish", () => {
-            callback();
-        });
-        stream.end();
-    });
-}
-
 /**
  * Write the specified `data` to the specified `repo` and return its hash
  * value.
@@ -136,7 +110,6 @@ const configRepo = co.wrap(function *(repo) {
 const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
 
     preTime.start();
-    const tempDir  = yield TestUtil.makeTempDir();
 
     let emptyTree = null;
     const getEmptyTree = co.wrap(function *() {
@@ -264,58 +237,44 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
     postTime.start();
     // Write out the levels in order of least to most dependent.
 
-    const writeLevel = co.wrap(function *(treeLevel, index) {
+    const writeLevel = co.wrap(function *(treeLevel) {
         const pathEntries = treeLevel.paths;
         const dataEntries = treeLevel.data;
-        const writeBatch = co.wrap(function *(batchPaths, offset) {
+        const writeTree = co.wrap(function *(paths, index) {
             writeTime.start();
-            const tempPath = path.join(tempDir, "" + index + "." + offset);
-            const stream = fs.createWriteStream(tempPath);
-            for (let i = 0; i < batchPaths.length; ++i) {
-                const paths = batchPaths[i];
-                const dataEntry = dataEntries[i + offset];
-
-                // Each of these is one line in the tree.
-
-                if (0 !== i) {
-                    stream.write("\n");
+            const entries = dataEntries[index];
+            const treeBuilder = yield NodeGit.Treebuilder.create(repo, null);
+            const numPaths = paths.length;
+            for (let pathIndex = 0; pathIndex < numPaths; ++pathIndex) {
+                const path = paths[pathIndex];
+                const entry = entries[pathIndex];
+                const typeofEntry = typeof entry;
+                let type;
+                let data;
+                if ("number" === typeofEntry) {
+                    type = 0x81A4;  // 0100644, blob
+                    data = blobData[entry];
                 }
-
-                for (let j = 0; j < paths.length; ++j) {
-                    const path = paths[j];
-                    const data = dataEntry[j];
-                    if ("number" === typeof data) {
-                        const blob = blobData[data];
-                        stream.write(`100644 blob ${blob}\t${path}\n`);
-                    }
-                    else if ("string" === typeof data) {
-                        stream.write(`160000 commit ${data}\t${path}\n`);
-                    }
-                    else {
-                        const treeId =
-                                     levels[data.level].resultIds[data.offset];
-                        stream.write(`040000 tree ${treeId}\t${path}\n`);
-                    }
+                else if ("string" === typeofEntry) {
+                    type = 0xE000; // 0160000, commit
+                    data = entry;
                 }
+                else {
+                    type = 0x4000; // 040000, tree
+                    data = levels[entry.level].resultIds[entry.offset];
+                }
+                yield treeBuilder.insert(path, data, type);
             }
-            yield closeStream(stream);
-            writeTime.stop();
-            treeTime.start();
-            const tempOutPath = path.join(
-                                  tempDir, "" + index + "." + offset + ".out");
-            const res = yield execMakeTree(repo, tempPath, tempOutPath);
-            treeTime.stop();
-            return res;
+            return treeBuilder.write().tostrS();
         });
-        treeLevel.resultIds = yield DoWorkQueue.doInBatches(pathEntries,
-                                                            8,
-                                                            writeBatch);
+        treeLevel.resultIds = yield DoWorkQueue.doInParallel(pathEntries,
+                                                             writeTree);
     });
 
     // Write out the levels in order.
 
     for (let i = 0; i < levels.length; ++i) {
-        yield writeLevel(levels[i], i);
+        yield writeLevel(levels[i]);
     }
 
     // Return the resulting tree ids.
