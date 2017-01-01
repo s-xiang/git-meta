@@ -103,6 +103,8 @@ exports.doInBatches = co.wrap(function *(queue, batches, getWork) {
     while (0 !== queueCopy.length) {
         batchedQueue.push(queueCopy.splice(0, batchSize));
     }
-    const batchedResults = yield batchedQueue.map(getWork);
+    const batchedResults = yield batchedQueue.map((work, index) => {
+        return getWork(work, index * batchSize);
+    });
     return batchedResults.reduce((acc, next) => acc.concat(next), []);
 });
