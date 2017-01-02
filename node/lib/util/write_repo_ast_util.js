@@ -50,25 +50,39 @@ const RebaseFileUtil      = require("./rebase_file_util");
 const RepoAST             = require("./repo_ast");
 const RepoASTUtil         = require("./repo_ast_util");
 const SubmoduleConfigUtil = require("./submodule_config_util");
-//const Stopwatch           = require("./stopwatch");
+const Stopwatch           = require("./stopwatch");
 const TestUtil            = require("./test_util");
 
+const totalTime = new Stopwatch();
+const treeTotal = new Stopwatch(true);
+const commitSetTime = new Stopwatch(true);
+const build = new Stopwatch(true);
+const commitTime = new Stopwatch(true);
+const commitWrite = new Stopwatch(true);
+const preTime = new Stopwatch(true);
+const postTime = new Stopwatch(true);
+const levelize  = new Stopwatch(true);
+const writeTime = new Stopwatch(true);
+const readTime = new Stopwatch(true);
+const treeTime = new Stopwatch(true);
+let maxRes = 0;
                          // Begin module-local methods
 
-const execMakeTree = co.wrap(function *(repo, path) {
-    let result;
+const execMakeTree = co.wrap(function *(repo, path, outPath) {
     try {
         const command = `\
-cat '${path}' | git -C '${repo.path()}' mktree --batch`;
-        result = yield exec(command, { maxBuffer: 50000000 });
+cat '${path}' | git -C '${repo.path()}' mktree --batch > ${outPath}`;
+        yield exec(command, { maxBuffer: 50000000 });
     }
     catch (e) {
         throw e;
     }
-
-    // Last one is always empty; remove it.
-    const ids = result.stdout.split("\n");
-    return ids.slice(0, ids.length - 1);
+    readTime.start();
+    const result = (yield fs.readFile(outPath, "utf-8")).split("\n");
+    maxRes = Math.max(maxRes, result.length);
+    const ret = result.slice(0, result.length - 1);
+    readTime.stop();
+    return ret;
 });
 
 function closeStream(stream) {
@@ -121,6 +135,7 @@ const configRepo = co.wrap(function *(repo) {
  */
 const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
 
+    preTime.start();
     const tempDir  = yield TestUtil.makeTempDir();
 
     let emptyTree = null;
@@ -244,12 +259,16 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
         return hashObject(repo, blob);
     });
 
+    preTime.stop();
+
+    postTime.start();
     // Write out the levels in order of least to most dependent.
 
     const writeLevel = co.wrap(function *(treeLevel, index) {
         const pathEntries = treeLevel.paths;
         const dataEntries = treeLevel.data;
         const writeBatch = co.wrap(function *(batchPaths, offset) {
+            writeTime.start();
             const tempPath = path.join(tempDir, "" + index + "." + offset);
             const stream = fs.createWriteStream(tempPath);
             for (let i = 0; i < batchPaths.length; ++i) {
@@ -280,10 +299,16 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
                 }
             }
             yield closeStream(stream);
-            return yield execMakeTree(repo, tempPath);
+            writeTime.stop();
+            treeTime.start();
+            const tempOutPath = path.join(
+                                  tempDir, "" + index + "." + offset + ".out");
+            const res = yield execMakeTree(repo, tempPath, tempOutPath);
+            treeTime.stop();
+            return res;
         });
         treeLevel.resultIds = yield DoWorkQueue.doInBatches(pathEntries,
-                                                            4,
+                                                            8,
                                                             writeBatch);
     });
 
@@ -305,6 +330,7 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
             result.push(levels[r.level].resultIds[r.offset]);
         }
     }
+    postTime.stop();
     return result;
 });
 
@@ -333,6 +359,7 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
     assert.instanceOf(repo, NodeGit.Repository);
     assert.isObject(commits);
     assert.isArray(shas);
+    commitTime.start();
 
     let newCommitMap = {};  // from new to old sha
 
@@ -342,7 +369,7 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
 
     const commitWriters = {};  // map from id to promise
 
-   const writeCommit = co.wrap(function *(sha, treeId) {
+    const writeCommit = co.wrap(function *(sha, treeId) {
         // TODO: extend libgit2 and nodegit to allow submoduel manipulations to
         // `TreeBuilder`.  For now, we will do this ourselves using the `git`
         // commandline tool.
@@ -393,11 +420,16 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
     });
 
     const writeCommitSet = co.wrap(function *(shas) {
+        build.start();
         const trees = shas.map(sha => {
             const flatTree = RepoAST.renderCommit(renderCache, commits, sha);
             return exports.buildDirectoryTree(flatTree);
         });
+        build.stop();
+        treeTotal.start();
         const treeIds = yield writeCommitTrees(repo, trees, oldCommitMap);
+        treeTotal.stop();
+        commitWrite.start();
         treeIds.forEach((treeId, index) => {
             const sha = shas[index];
             commitWriters[sha] = writeCommit(sha, treeId);
@@ -405,14 +437,34 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
         yield DoWorkQueue.doInParallel(shas, sha => {
             return commitWriters[sha];
         });
+        commitWrite.stop();
     });
 
+    levelize.start();
     const commitsByLevel = exports.levelizeCommitTrees(commits, shas);
+    levelize.stop();
 
+    commitSetTime.start();
     for (let i = 0; i < commitsByLevel.length; ++i) {
         const level = commitsByLevel[i];
         yield writeCommitSet(level);
     }
+    commitSetTime.stop();
+    commitTime.stop();
+
+    function tot(w) {
+        return Math.trunc((w.elapsed / totalTime.elapsed) * 100);
+    }
+
+    console.log(`\
+Pre ${tot(preTime)}, post ${tot(postTime)}, commit-set ${tot(commitSetTime)} \
+tree ${tot(treeTime)}, \
+write ${tot(writeTime)}, \
+read: ${tot(readTime)}, maxres: ${maxRes} \
+commit ${tot(commitTime)} \
+commit-write ${tot(commitWrite)}.`);
+    console.log(`Levelize: ${tot(levelize)}, tree tot ${tot(treeTotal)} \
+build ${tot(build)}.`);
     return newCommitMap;
 });
 
