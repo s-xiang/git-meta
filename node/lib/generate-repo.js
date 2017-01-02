@@ -277,7 +277,7 @@ ${blockSize} commits.`);
             process.stdout.write(`took ${time.elapsed}.\n`);
             yield renderBlock(repo, state, madeShas, subHeads);
             process.stdout.write(`Writing ${madeShas.length} commits and \
-${subHeads.length} changed subs, took ${time.elapsed} seconds.  Commit \
+${subHeads.length} sub changes, took ${time.elapsed} seconds.  Commit \
 rate ${totalCommits / totalTime.elapsed}/S.\n`);
         }
     }
