@@ -50,6 +50,7 @@ class Stopwatch {
      * @param {Boolean} paused
      */
     constructor(paused) {
+        this.d_startCount = 0;
         this.d_elapsed = 0;
         this.d_startTime = null;
 
@@ -59,41 +60,48 @@ class Stopwatch {
     }
 
     /**
-     * Start accumulating elapsed time.  The behavior is undefined unless
-     * `!this.started`.
+     * Start accumulating elapsed time if `0 === this.startCount`; increment
+     * `this.startCount`.
      */
     start() {
-        assert(!this.started, "already started");
-        this.d_startTime = new Date();
+        if (1 === ++this.d_startCount) {
+            this.d_startTime = new Date();
+        }
     }
 
     /**
-     * Stop accumulating time and return the amount of time accumulated since
-     * `this.start()` was called, in seconds.  The behavior is undefined
-     * unless `this.started`.
-     *
+     * Stop accumulating time if `1 === this.startCount` and decrement
+     * `this.startCount`; return `this.elapsed`.  The behavior is undefined
+     * unless `0 !== this.startCount`.
+    *
      * @return {Number}
      */
     stop() {
-        assert(this.started, "not started");
-        const current = this.getCurrentMs();
-        this.d_elapsed += current;
-        this.d_startTime = null;
+        assert(0 !== this.d_startCount);
+        if (1 === this.d_startCount) {
+            const current = this.getCurrentMs();
+            this.d_elapsed += current;
+            this.d_startTime = null;
+        }
+        --this.d_startCount;
         return this.elapsed;
     }
 
     /**
      * Stop accumulating time if accumulating, reset accumulated time to 0, and
      * return the amount of time accumulated until now, in seconds.  If the
-     * specified `paused` is true, do not start the clock.
+     * specified `paused` is true, do not start the clock.  The behavior is
+     * undefined unless `1 >= this.startCount`.
      *
      * @param {Boolean} [paused]
      * @return {Number}
      */
     reset(paused) {
+        assert(1 >= this.d_startCount);
         const current = this.elapsed;
         this.d_elapsed = 0;
         this.d_startTime = null;
+        this.d_startCount = 0;
         if (!paused) {
             this.start();
         }
@@ -102,23 +110,23 @@ class Stopwatch {
 
     /**
      * Return the amount of time elapased since `start` was called, in
-     * seconds.  The behavior is undefined unless `this.started`.
+     * seconds.  The behavior is undefined unless `0 !== this.startCount`.
      *
      * @return {Number}
      */
     getCurrent() {
-        assert(this.started);
+        assert(0 !== this.d_startCount);
         return this.getCurrentMs() / 1000.0;
     }
 
     /**
      * the amount of time elapased since `start` was called, in milliseconds.
-     * The behavior is undefined unless `this.started`.
+     * The behavior is undefined unless `0 !== this.startCount`.
      *
      * @return {Number}
      */
     getCurrentMs() {
-        assert(this.started);
+        assert(0 !== this.d_startCount);
         return (new Date()) - this.d_startTime;
     }
 
@@ -145,8 +153,8 @@ class Stopwatch {
      * true if currently accumulating time and false otherwise
      * @property {Boolean}
      */
-    get started() {
-        return null !== this.d_startTime;
+    get startCount() {
+        return this.d_startCount;
     }
 }
 
