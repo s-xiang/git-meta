@@ -123,7 +123,7 @@ class State {
 }
 
 function makeSubCommits(state, name, madeShas) {
-    const numCommits = randomInt(3) + 1;
+    const numCommits = randomInt(2) + 1;
     const subHeads = state.submoduleHeads;
     let lastHead = subHeads[name];
     const commits = state.commits;
@@ -139,7 +139,7 @@ function makeSubCommits(state, name, madeShas) {
                                                     commits,
                                                     lastHead);
             const paths = Object.keys(oldChanges);
-            const numChanges = randomInt(4) + 1;
+            const numChanges = randomInt(2) + 1;
             for (let j = 0; j < numChanges; ++j) {
                 const pathToUpdate = paths[randomInt(paths.length)];
                 changes[pathToUpdate] =
@@ -147,10 +147,10 @@ function makeSubCommits(state, name, madeShas) {
             }
         }
 
-        // Add a path if there are no commits yet, or on a 1/3 chance
+        // Add a path if there are no commits yet, or on a chance
 
-        if (undefined === lastHead || 0 === randomInt(3)) {
-            const path = generatePath(randomInt(7) + 1);
+        if (undefined === lastHead || 0 === randomInt(6)) {
+            const path = generatePath(randomInt(3) + 1);
             changes[path] = state.nextCommitId + generateCharacter();
         }
         const parents = undefined === lastHead ? [] : [lastHead];
@@ -177,7 +177,7 @@ function makeSubCommits(state, name, madeShas) {
  * @param {String []} subHeads
  */
 function makeMetaCommit(state, madeShas, subHeads) {
-    const subsToChange = randomInt(3) + 1;
+    const subsToChange = randomInt(2) + 1;
     let subPaths = {};
     const numSubs = state.submoduleNames.length;
 
@@ -195,7 +195,7 @@ function makeMetaCommit(state, madeShas, subHeads) {
 
     // one commit in five add a sub or always if no subs
 
-    if (0 === numSubs || 0 === randomInt(5)) {
+    if (0 === numSubs || 0 === randomInt(10)) {
         while (true) {
             const path = generatePath(3);
             if (!(path in state.submoduleHeads)) {
@@ -246,6 +246,35 @@ const renderBlock = co.wrap(function *(repo, state, shas, subHeads) {
     yield renderRefs(repo, state.oldCommitMap, subHeads);
 });
 
+
+function doGc(state) {
+    const toKeep = new Set();
+    function addToKeep(sha) {
+        toKeep.add(sha);
+    }
+    toKeep.add(state.metaHead);
+    const metaCommit = state.commits[state.metaHead];
+    metaCommit.parents.forEach(addToKeep);
+    for (let path in state.submoduleHeads) {
+        const sha = state.submoduleHeads[path];
+        toKeep.add(sha);
+        const commit = state.commits[sha];
+        commit.parents.forEach(addToKeep);
+    }
+    function copyIfUsed(map) {
+        let result = {};
+        for (let sha in map) {
+            if (toKeep.has(sha)) {
+                result[sha] = map[sha];
+            }
+        }
+        return result;
+    }
+    state.renderCache = copyIfUsed(state.renderCache);
+    state.oldCommitMap = copyIfUsed(state.oldCommitMap);
+    state.commits = copyIfUsed(state.commits);
+}
+
 co(function *() {
     try {
         const path = args.destination;
@@ -266,19 +295,20 @@ ${blockSize} commits.`);
         const repo = yield NodeGit.Repository.init(path, 1);
         let totalCommits = 0;
         for (let i = 0; -1 === count || i < count; ++i) {
-            const time = new Stopwatch();
-            process.stdout.write(`Generating ${blockSize} meta commits... `);
             const madeShas = [];
             const subHeads = [];
             for (let i = 0; i < blockSize; ++i) {
                 makeMetaCommit(state, madeShas, subHeads);
             }
             totalCommits += blockSize;
-            process.stdout.write(`took ${time.elapsed}.\n`);
+            const time = new Stopwatch();
             yield renderBlock(repo, state, madeShas, subHeads);
-            process.stdout.write(`Writing ${madeShas.length} commits and \
+            time.stop();
+            doGc(state);
+            console.log(`Writing ${madeShas.length} commits and \
 ${subHeads.length} sub changes, took ${time.elapsed} seconds.  Commit \
-rate ${totalCommits / totalTime.elapsed}/S.\n`);
+rate ${totalCommits / totalTime.elapsed}/S, total commits ${totalCommits}, \
+total time ${totalTime.elapsed}, total subs: ${state.submoduleNames.length}.`);
         }
     }
     catch(e) {
