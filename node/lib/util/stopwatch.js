@@ -39,7 +39,9 @@ const assert = require("chai").assert;
 
 /**
  * `Stopwatch` is a mechanism class providing a way to measure elapsed wall
- * time.
+ * time.  `Stopwatch` supports *reentrant* code (as is common with 
+ * synchronous code), keeping so that after N calls to `start` it will
+ * accumulate time until it sees N calls to `stop`.
  */
 class Stopwatch {
 
