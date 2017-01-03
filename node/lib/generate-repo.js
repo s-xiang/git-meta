@@ -117,8 +117,8 @@ class State {
         this.submoduleHeads   = {};     // map to last sub commit
         this.oldHeads         = [];     // meta-refs to delete
         this.metaHead         = null;   // array of shas
-        this.nextCommitId     = 2;
-        this.totalCommits     = 0;
+        this.nextCommitId     = 2;      // next logical sha
+        this.totalCommits     = 0;      // total meta and sub commits made
     }
 
     generateCommitId() {
@@ -176,8 +176,8 @@ function makeSubCommits(state, name, madeShas) {
 }
 
 /**
- * Generate commits in the specified `state`, storing in the specified
- * `metaShas` all generated commit ids and in the specified `subHeads` the
+ * Generate a commit in the specified `state`, storing in the specified
+ * `madeShas` all generated commit ids and in the specified `subHeads` the
  * shas of submodule heads referenced by meta-repo commits.
  *
  * @param {State}     state
