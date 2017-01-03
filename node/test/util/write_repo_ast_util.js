@@ -193,7 +193,7 @@ describe("WriteRepoASTUtil", function () {
                 const path = yield TestUtil.makeTempDir();
                 const repo = yield NodeGit.Repository.init(path, 1);
                 const oldCommitMap = {};
-                const renderCache = {};
+                const treeCache = {};
                 const inputCommits = ast.commits;
                 const written = new Set();
                 const newCommitMap = {};
@@ -201,7 +201,7 @@ describe("WriteRepoASTUtil", function () {
                     const shas = c.shas[i];
                     const newToOld = yield WriteRepoASTUtil.writeCommits(
                                                                   oldCommitMap,
-                                                                  renderCache,
+                                                                  treeCache,
                                                                   repo,
                                                                   inputCommits,
                                                                   shas);
