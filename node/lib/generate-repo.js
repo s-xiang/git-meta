@@ -37,6 +37,7 @@ const rimraf         = require("rimraf");
 
 const RepoAST             = require("./util/repo_ast");
 const Stopwatch           = require("./util/stopwatch");
+const SyntheticBranchUtil = require("./util/synthetic_branch_util");
 const WriteRepoASTUtil    = require("./util/write_repo_ast_util");
 
 const description = `Write the repos described by a string having the syntax \
@@ -114,6 +115,7 @@ class State {
         this.commits          = {};     // logical sha to RepoAST.Commit
         this.submoduleNames   = [];     // paths of all subs
         this.submoduleHeads   = {};     // map to last sub commit
+        this.oldHeads         = [];     // meta-refs to delete
         this.metaHead         = null;   // array of shas
         this.nextCommitId     = 2;
         this.totalCommits     = 0;
@@ -128,6 +130,9 @@ function makeSubCommits(state, name, madeShas) {
     const numCommits = randomInt(2) + 1;
     const subHeads = state.submoduleHeads;
     let lastHead = subHeads[name];
+    if (undefined !== lastHead) {
+        state.oldHeads.push(lastHead);
+    }
     const commits = state.commits;
     for (let i = 0; i < numCommits; ++i) {
         const newHead = state.generateCommitId();
@@ -226,17 +231,19 @@ function makeMetaCommit(state, madeShas, subHeads) {
     });
     state.commits[commitId] = commit;
     madeShas.push(commitId);
+    ++state.totalCommits;
 }
 
 const renderRefs = co.wrap(function *(repo, oldCommitMap, shas) {
     yield shas.map(sha => {
         const target = oldCommitMap[sha];
         const targetId = NodeGit.Oid.fromString(target);
-        return NodeGit.Reference.create(repo,
-                                        `refs/commits/${target}`,
-                                        targetId,
-                                        0,
-                                        "meta-ref");
+        return NodeGit.Reference.create(
+                       repo,
+                       SyntheticBranchUtil.getSyntheticBranchForCommit(target),
+                       targetId,
+                       0,
+                       "meta-ref");
     });
 });
 
@@ -252,6 +259,14 @@ const renderBlock = co.wrap(function *(repo, state, shas, subHeads) {
                                    state.oldCommitMap[state.metaHead],
                                    1,
                                    "my ref");
+    yield state.oldHeads.map(co.wrap(function *(sha) {
+        const realSha = state.oldCommitMap[sha];
+        const metaRefName =
+                      SyntheticBranchUtil.getSyntheticBranchForCommit(realSha);
+        const ref = yield NodeGit.Reference.lookup(repo, metaRefName);
+        ref.delete();
+    }));
+    state.oldHeads = [];
 });
 
 
@@ -301,23 +316,24 @@ co(function *() {
 ${blockSize} commits.`);
         const totalTime = new Stopwatch();
         const repo = yield NodeGit.Repository.init(path, 1);
-        let totalCommits = 0;
+        let metaCommits = 0;
         for (let i = 0; -1 === count || i < count; ++i) {
             const madeShas = [];
             const subHeads = [];
             for (let i = 0; i < blockSize; ++i) {
                 makeMetaCommit(state, madeShas, subHeads);
             }
-            totalCommits += blockSize;
+            metaCommits += blockSize;
             const time = new Stopwatch();
             yield renderBlock(repo, state, madeShas, subHeads);
             time.stop();
             doGc(state);
             console.log(`Writing ${madeShas.length} commits and \
 ${subHeads.length} sub changes, took ${time.elapsed} seconds.  Commit \
-rate ${totalCommits / totalTime.elapsed}/S, total commits ${totalCommits}, \
+rate ${metaCommits / totalTime.elapsed}/S, meta commits ${metaCommits}, \
 total time ${totalTime.elapsed}, total subs: ${state.submoduleNames.length} \
-total sub commits ${state.totalCommits}.`);
+total commits ${state.totalCommits}, \
+${state.totalCommits / totalTime.elapsed}/S.`);
         }
     }
     catch(e) {
