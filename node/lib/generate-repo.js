@@ -108,6 +108,7 @@ function generatePath(depth) {
 
 class State {
     constructor() {
+        this.treeCache        = {};     // used in writing commits
         this.renderCache      = {};     // used in writing commits
         this.oldCommitMap     = {};     // maps logical to physical sha
         this.commits          = {};     // logical sha to RepoAST.Commit
@@ -115,6 +116,7 @@ class State {
         this.submoduleHeads   = {};     // map to last sub commit
         this.metaHead         = null;   // array of shas
         this.nextCommitId     = 2;
+        this.totalCommits     = 0;
     }
 
     generateCommitId() {
@@ -164,6 +166,7 @@ function makeSubCommits(state, name, madeShas) {
         madeShas.push(newHead);
         commits[newHead] = commit;
     }
+    state.totalCommits += numCommits;
     return lastHead;
 }
 
@@ -239,11 +242,16 @@ const renderRefs = co.wrap(function *(repo, oldCommitMap, shas) {
 
 const renderBlock = co.wrap(function *(repo, state, shas, subHeads) {
     yield WriteRepoASTUtil.writeCommits(state.oldCommitMap,
-                                        state.renderCache,
+                                        state.treeCache,
                                         repo,
                                         state.commits,
                                         shas);
     yield renderRefs(repo, state.oldCommitMap, subHeads);
+    yield NodeGit.Reference.create(repo,
+                                   "refs/heads/master",
+                                   state.oldCommitMap[state.metaHead],
+                                   1,
+                                   "my ref");
 });
 
 
@@ -270,7 +278,7 @@ function doGc(state) {
         }
         return result;
     }
-    state.renderCache = copyIfUsed(state.renderCache);
+    state.treeCache = copyIfUsed(state.treeCache);
     state.oldCommitMap = copyIfUsed(state.oldCommitMap);
     state.commits = copyIfUsed(state.commits);
 }
@@ -308,7 +316,8 @@ ${blockSize} commits.`);
             console.log(`Writing ${madeShas.length} commits and \
 ${subHeads.length} sub changes, took ${time.elapsed} seconds.  Commit \
 rate ${totalCommits / totalTime.elapsed}/S, total commits ${totalCommits}, \
-total time ${totalTime.elapsed}, total subs: ${state.submoduleNames.length}.`);
+total time ${totalTime.elapsed}, total subs: ${state.submoduleNames.length} \
+total sub commits ${state.totalCommits}.`);
         }
     }
     catch(e) {

@@ -124,6 +124,25 @@ const writeTree = co.wrap(function *(root,
 
     const changes = exports.buildDirectoryTree(flatChanges);
     const builder = yield NodeGit.Treebuilder.create(repo, parentTree);
+    const actions = [];
+
+    const writeSubtree = co.wrap(function *(filename, entry) {
+        const subtree = yield writeTree(false,
+                                        repo,
+                                        db,
+                                        shaMap,
+                                        entry,
+                                        parentSubtrees[filename]);
+        subtrees[filename] = subtree;
+        yield builder.insert(filename,
+                             subtree.tree.id(),
+                             NodeGit.TreeEntry.FILEMODE.TREE);
+        for (let subPath in subtree.submodules) {
+            const sub = subtree.submodules[subPath];
+            submodules[path.join(filename, subPath)] = sub;
+        }
+    });
+
     for (let filename in changes) {
         const entry = changes[filename];
         if (null === entry) {
@@ -131,34 +150,22 @@ const writeTree = co.wrap(function *(root,
         }
         else if ("string" === typeof entry) {
             const id = yield hashObject(db, entry);
-            yield builder.insert(filename,
-                                 id,
-                                 NodeGit.TreeEntry.FILEMODE.BLOB);
+            actions.push(builder.insert(filename,
+                                        id,
+                                        NodeGit.TreeEntry.FILEMODE.BLOB));
         }
         else if (entry instanceof RepoAST.Submodule) {
             const id = shaMap[entry.sha];
-            yield builder.insert(filename,
-                                 id,
-                                 NodeGit.TreeEntry.FILEMODE.COMMIT);
+            actions.push(builder.insert(filename,
+                                        id,
+                                        NodeGit.TreeEntry.FILEMODE.COMMIT));
             submodules[filename] = entry.url;
         }
         else {
-            const subtree = yield writeTree(false,
-                                            repo,
-                                            db,
-                                            shaMap,
-                                            entry,
-                                            parentSubtrees[filename]);
-            subtrees[filename] = subtree;
-            yield builder.insert(filename,
-                                 subtree.tree.id(),
-                                 NodeGit.TreeEntry.FILEMODE.TREE);
-            for (let subPath in subtree.submodules) {
-                const sub = subtree.submodules[subPath];
-                submodules[path.join(filename, subPath)] = sub;
-            }
+            actions.push(writeSubtree(filename, entry));
         }
     }
+    yield actions;
     if (root) {
         const subNames = Object.keys(submodules).sort();
         if (0 !== subNames.length) {
