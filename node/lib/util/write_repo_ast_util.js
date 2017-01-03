@@ -54,18 +54,10 @@ const Stopwatch           = require("./stopwatch");
 const TestUtil            = require("./test_util");
 
 const totalTime = new Stopwatch();
-const treeTotal = new Stopwatch(true);
 const commitSetTime = new Stopwatch(true);
-const build = new Stopwatch(true);
 const commitTime = new Stopwatch(true);
-const commitWrite = new Stopwatch(true);
-const preTime = new Stopwatch(true);
-const postTime = new Stopwatch(true);
-const levelize  = new Stopwatch(true);
-const writeTime = new Stopwatch(true);
-const readTime = new Stopwatch(true);
 const treeTime = new Stopwatch(true);
-let maxRes = 0;
+
                          // Begin module-local methods
 
 /**
@@ -78,8 +70,7 @@ let maxRes = 0;
  * @param {String}             data
  * @return {String}
  */
-const hashObject = co.wrap(function *(repo, data) {
-    const db = yield repo.odb();
+const hashObject = co.wrap(function *(db, data) {
     const BLOB = 3;
     const res = yield db.write(data, data.length, BLOB);
     return res.tostrS();
@@ -102,195 +93,98 @@ const configRepo = co.wrap(function *(repo) {
  * ids of submodule heads to their actual physical ids.
  *
  * @async
+ * @param {Boolean}               root
  * @param {NodeGit.Repository}    repo
- * @param {Object[]}              commitTrees array of trees to render
+ * @param {NodeGit.Odb}           db
  * @param {Object}                shaMap maps logical to physical ID
- * @return {String[]} array of tree ids
+ * @param {Object}                flatChanges map of changes
+ * @param {Object}                [parent]
+ * @param {Object}                parent.subtrees
+ * @param {NodeGit.Tree}          parent.tree
+ * @param {Object}                parent.submodules name to url
+ * @return {Object}
+ * @return {Object}       return.subtrees
+ * @return {NodeGit.Tree} return.tree
  */
-const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
-
-    preTime.start();
-
-    let emptyTree = null;
-    const getEmptyTree = co.wrap(function *() {
-        if (null === emptyTree) {
-            const builder = yield NodeGit.Treebuilder.create(repo, null);
-            const treeObj = builder.write();
-            emptyTree = treeObj.tostrS();
-        }
-        return emptyTree;
-    });
-
-    class TreeLevel {
-
-        constructor() {
-
-            // Paths and data go together, and will contain the elements to
-            // write for each tree.  Paths contains arrays of strings, and data
-            // will contains arrays, each sub-array having elements that are
-            // one of:
-            // - a number -- mapping to a blob index
-            // - a string -- a commit sha
-            // - a entry object: containing a tree 'level' and 'offset'.
-
-            this.paths = [];
-            this.data  = [];
-
-            this.resultIds = [];  // Array of written trees.
-        }
+const writeTree = co.wrap(function *(root,
+                                     repo,
+                                     db,
+                                     shaMap,
+                                     flatChanges,
+                                     parent) {
+    let subtrees = {};
+    let parentSubtrees = {};
+    let parentTree = null;
+    const submodules = {};
+    if (undefined !== parent) {
+        parentSubtrees = parent.subtrees;
+        parentTree = parent.tree;
+        Object.assign(submodules, parent.submodules);
     }
 
-    let levels = [];
-    let blobs = [];
-
-    /**
-     * Return a tree level and offset or `null` for an empty tree.
-     *
-     * @param {Object} tree map from path to content
-     * @param {Number} level level at which to put data
-     * @return {[Object]}
-     * @return {Number} return.level
-     * @return {Number} return.offset
-     */
-    function stageTree(tree, level) {
-        let treeLevel = level;  // Will contain final level for this tree
-
-        // pathEntries and dataEntries map to 'path' and 'data' in 'TreeLevel'.
-
-        let pathEntries = [];
-        let dataEntries = [];
-
-        for (let path in tree) {
-            pathEntries.push(path);
-            const data = tree[path];
-
-            // If the data is a string or submodule, it's a leaf and we can
-            // just push it.
-
-            if ("string" === typeof data) {
-                const blobIndex = blobs.length;
-                blobs.push(data);
-                dataEntries.push(blobIndex);
-            }
-            else if (data instanceof RepoAST.Submodule) {
-                const subSha = data.sha;
-                assert.property(shaMap, subSha, "missing submodule sha");
-                dataEntries.push(shaMap[subSha]);
-            }
-            else {
-                // Otherwise, we need to recursively stage the subtree.  The
-                // new level for the current tree will be the maximum of the
-                // level needed to write this subtree (plus 1) and the
-                // previous maximum level -- we cannot write the current tree
-                // until at least this new subtree is written.
-
-                const subTree = stageTree(data, level);
-                dataEntries.push(subTree);
-                treeLevel = Math.max(treeLevel, subTree.level + 1);
-            }
+    const changes = exports.buildDirectoryTree(flatChanges);
+    const builder = yield NodeGit.Treebuilder.create(repo, parentTree);
+    for (let filename in changes) {
+        const entry = changes[filename];
+        if (null === entry) {
+            builder.remove(filename);
         }
-
-        // If no entries in the tree, return a null to indicate an empty tree.
-
-        if (0 === pathEntries.length) {
-            return null;                                              // RETURN
+        else if ("string" === typeof entry) {
+            const id = yield hashObject(db, entry);
+            yield builder.insert(filename,
+                                 id,
+                                 NodeGit.TreeEntry.FILEMODE.BLOB);
         }
-
-        // Make a new tree level if needed.
-
-        if (treeLevel === levels.length) {
-            levels.push(new TreeLevel());
-        }
-
-        // This is the level at which this tree will live:
-
-        const targetLevel = levels[treeLevel];
-
-        // Offset is the next location.
-
-        const offset = targetLevel.paths.length;
-
-        // Copy entries.
-
-        targetLevel.paths.push(pathEntries);
-        targetLevel.data.push(dataEntries);
-
-        return {
-            level: treeLevel,
-            offset: offset,
-        };
-    }
-
-    // Stage all the commits, remembering how to access the tree generated for
-    // each one by storing the tree level and offset in 'records'.
-
-    const records = commitTrees.map(tree => stageTree(tree, 0));
-
-    // Generate blob hashes in parallel.
-
-    const blobData = yield DoWorkQueue.doInParallel(blobs, function (blob) {
-        return hashObject(repo, blob);
-    });
-
-    preTime.stop();
-
-    postTime.start();
-    // Write out the levels in order of least to most dependent.
-
-    const writeLevel = co.wrap(function *(treeLevel) {
-        const pathEntries = treeLevel.paths;
-        const dataEntries = treeLevel.data;
-        const writeTree = co.wrap(function *(paths, index) {
-            writeTime.start();
-            const entries = dataEntries[index];
-            const treeBuilder = yield NodeGit.Treebuilder.create(repo, null);
-            const numPaths = paths.length;
-            for (let pathIndex = 0; pathIndex < numPaths; ++pathIndex) {
-                const path = paths[pathIndex];
-                const entry = entries[pathIndex];
-                const typeofEntry = typeof entry;
-                let type;
-                let data;
-                if ("number" === typeofEntry) {
-                    type = 0x81A4;  // 0100644, blob
-                    data = blobData[entry];
-                }
-                else if ("string" === typeofEntry) {
-                    type = 0xE000; // 0160000, commit
-                    data = entry;
-                }
-                else {
-                    type = 0x4000; // 040000, tree
-                    data = levels[entry.level].resultIds[entry.offset];
-                }
-                yield treeBuilder.insert(path, data, type);
-            }
-            return treeBuilder.write().tostrS();
-        });
-        treeLevel.resultIds = yield DoWorkQueue.doInParallel(pathEntries,
-                                                             writeTree);
-    });
-
-    // Write out the levels in order.
-
-    for (let i = 0; i < levels.length; ++i) {
-        yield writeLevel(levels[i]);
-    }
-
-    // Return the resulting tree ids.
-
-    let result = [];
-    for (let i = 0; i < records.length; ++i) {
-        const r = records[i];
-        if (null === r) {
-            result.push(yield getEmptyTree());
+        else if (entry instanceof RepoAST.Submodule) {
+            const id = shaMap[entry.sha];
+            yield builder.insert(filename,
+                                 id,
+                                 NodeGit.TreeEntry.FILEMODE.COMMIT);
+            submodules[filename] = entry.url;
         }
         else {
-            result.push(levels[r.level].resultIds[r.offset]);
+            const subtree = yield writeTree(false,
+                                            repo,
+                                            db,
+                                            shaMap,
+                                            entry,
+                                            parentSubtrees[filename]);
+            subtrees[filename] = subtree;
+            yield builder.insert(filename,
+                                 subtree.tree.id(),
+                                 NodeGit.TreeEntry.FILEMODE.TREE);
+            for (let subPath in subtree.submodules) {
+                const sub = subtree.submodules[subPath];
+                submodules[path.join(filename, subPath)] = sub;
+            }
         }
     }
-    postTime.stop();
-    return result;
+    if (root) {
+        const subNames = Object.keys(submodules).sort();
+        if (0 !== subNames.length) {
+            let data = "";
+            for (let i = 0; i < subNames.length; ++i) {
+                const filename = subNames[i];
+                const url = submodules[filename];
+                data += `\
+[submodule "${filename}"]
+\tpath = ${filename}
+\turl = ${url}
+`;
+            }
+            const dataId = yield hashObject(db, data);
+            yield builder.insert(SubmoduleConfigUtil.modulesFileName,
+                                 dataId,
+                                 NodeGit.TreeEntry.FILEMODE.BLOB);
+        }
+    }
+    const id = builder.write();
+    const tree = yield repo.getTree(id);
+    return {
+        tree: tree,
+        subtrees: subtrees,
+        submodules: submodules,
+    };
 });
 
 /**
@@ -309,48 +203,38 @@ const writeCommitTrees = co.wrap(function *(repo, commitTrees, shaMap) {
  * @return {Object} maps generated to original commit id
  */
 exports.writeCommits = co.wrap(function *(oldCommitMap,
-                                          renderCache,
+                                          treeCache,
                                           repo,
                                           commits,
                                           shas) {
     assert.isObject(oldCommitMap);
-    assert.isObject(renderCache);
+    assert.isObject(treeCache);
     assert.instanceOf(repo, NodeGit.Repository);
     assert.isObject(commits);
     assert.isArray(shas);
     commitTime.start();
 
+    const db = yield repo.odb();
     let newCommitMap = {};  // from new to old sha
 
     const sig = repo.defaultSignature();
 
     const commitObjs = {};  // map from new id to `Commit` object
 
-    const commitWriters = {};  // map from id to promise
-
-    const writeCommit = co.wrap(function *(sha, treeId) {
-        // TODO: extend libgit2 and nodegit to allow submoduel manipulations to
-        // `TreeBuilder`.  For now, we will do this ourselves using the `git`
-        // commandline tool.
-        //
-        // - First, we calculate the tree describred by the commit at `sha`.
-        // - Then, we build a string that describes that as if it were output
-        //   by `ls-tree`.
-        // - Next, we invoke `git-mktree` to create a tree id
-        // - finally, we invoke `git-commit-tree` to create the commit.
-
+    const writeCommit = co.wrap(function *(sha) {
         // Recursively get commit ids for parents.
 
         const commit = commits[sha];
         const parents = commit.parents;
 
+        let parentTrees;
         let newParents = [];  // Array of commit IDs
         for (let i = 0; i < parents.length; ++i) {
             const parent = parents[i];
-            let parentSha = oldCommitMap[parent];
-            if (undefined === parentSha) {
-                parentSha = yield commitWriters[parent];
+            if (0 === i) {
+                parentTrees = treeCache[parent];
             }
+            const parentSha = oldCommitMap[parent];
             const parentCommit = yield repo.getCommit(parentSha);
             newParents.push(parentCommit);
         }
@@ -358,7 +242,15 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
         // Calculate the tree.  `tree` describes the directory tree specified
         // by the commit at `sha`.
 
-        const treeObj = yield repo.getTree(treeId);
+        treeTime.start();
+        const trees = yield writeTree(true,
+                                      repo,
+                                      db,
+                                      oldCommitMap,
+                                      commit.changes,
+                                      parentTrees);
+        treeTime.stop();
+        treeCache[sha] = trees;
 
         // Make a commit from the tree.
 
@@ -368,7 +260,7 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
                                                      sig,
                                                      0,
                                                      commit.message,
-                                                     treeObj,
+                                                     trees.tree,
                                                      newParents.length,
                                                      newParents);
         const commitSha = commitId.tostrS();
@@ -378,35 +270,12 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
         return commitSha;
     });
 
-    const writeCommitSet = co.wrap(function *(shas) {
-        build.start();
-        const trees = shas.map(sha => {
-            const flatTree = RepoAST.renderCommit(renderCache, commits, sha);
-            return exports.buildDirectoryTree(flatTree);
-        });
-        build.stop();
-        treeTotal.start();
-        const treeIds = yield writeCommitTrees(repo, trees, oldCommitMap);
-        treeTotal.stop();
-        commitWrite.start();
-        treeIds.forEach((treeId, index) => {
-            const sha = shas[index];
-            commitWriters[sha] = writeCommit(sha, treeId);
-        });
-        yield DoWorkQueue.doInParallel(shas, sha => {
-            return commitWriters[sha];
-        });
-        commitWrite.stop();
-    });
-
-    levelize.start();
     const commitsByLevel = exports.levelizeCommitTrees(commits, shas);
-    levelize.stop();
 
     commitSetTime.start();
     for (let i = 0; i < commitsByLevel.length; ++i) {
         const level = commitsByLevel[i];
-        yield writeCommitSet(level);
+        yield DoWorkQueue.doInParallel(level, writeCommit);
     }
     commitSetTime.stop();
     commitTime.stop();
@@ -416,14 +285,9 @@ exports.writeCommits = co.wrap(function *(oldCommitMap,
     }
 
     console.log(`\
-Pre ${tot(preTime)}, post ${tot(postTime)}, commit-set ${tot(commitSetTime)} \
+commit-set ${tot(commitSetTime)} \
 tree ${tot(treeTime)}, \
-write ${tot(writeTime)}, \
-read: ${tot(readTime)}, maxres: ${maxRes} \
-commit ${tot(commitTime)} \
-commit-write ${tot(commitWrite)}.`);
-    console.log(`Levelize: ${tot(levelize)}, tree tot ${tot(treeTotal)} \
-build ${tot(build)}.`);
+commit ${tot(commitTime)}`);
     return newCommitMap;
 });
 
@@ -434,15 +298,15 @@ build ${tot(build)}.`);
  * @private
  * @param {NodeGit.Repository} repo
  * @param {Object}             commits sha to `RepoAST.Commit`
+ * @param {Object}             treeCache
  * @return {Object}
  * @return {Object} return.oldToNew  maps original to generated commit id
  * @return {Object} return.newToOld  maps generated to original commit id
  */
-const writeAllCommits = co.wrap(function *(repo, commits) {
-    const renderCache = {};
+const writeAllCommits = co.wrap(function *(repo, commits, treeCache) {
     const oldCommitMap = {};
     const newIds = yield exports.writeCommits(oldCommitMap,
-                                              renderCache,
+                                              treeCache,
                                               repo,
                                               commits,
                                               Object.keys(commits));
@@ -463,8 +327,9 @@ const writeAllCommits = co.wrap(function *(repo, commits) {
  * @param {NodeGit.Repository} repo
  * @param {RepoAST}            ast
  * @param {Object}             commitMap  old to new id
+ * @param {Object}             treeCache  map of tree entries
  */
-const configureRepo = co.wrap(function *(repo, ast, commitMap) {
+const configureRepo = co.wrap(function *(repo, ast, commitMap, treeCache) {
     const makeRef = co.wrap(function *(name, commit) {
         const newSha = commitMap[commit];
         const newId = NodeGit.Oid.fromString(newSha);
@@ -573,16 +438,19 @@ const configureRepo = co.wrap(function *(repo, ast, commitMap) {
         // Set up the index.  We render the current commit and apply the index
         // on top of it.
 
-        let flatTree = ast.index;
+        let indexParent;
         if (null !== indexHead) {
-            flatTree =
-                  yield RepoAST.renderIndex(ast.commits, indexHead, ast.index);
+            indexParent = treeCache[indexHead];
         }
-        const tree = exports.buildDirectoryTree(flatTree);
-        const trees = yield writeCommitTrees(repo, [tree], commitMap);
-        const treeId = trees[0];
+        const db = yield repo.odb();
+        const trees = yield writeTree(true,
+                                      repo,
+                                      db,
+                                      commitMap,
+                                      ast.index,
+                                      indexParent);
         const index = yield repo.index();
-        const treeObj = yield repo.getTree(treeId);
+        const treeObj = trees.tree;
         yield index.readTree(treeObj);
         yield index.write();
 
@@ -666,7 +534,7 @@ exports.levelizeCommitTrees = function (commits, shas) {
         for (let i = 0; i < parents.length; ++i) {
             const parent = parents[i];
             if (includedShas.has(parent)) {
-                level = Math.max(level, computeCommitLevel(parent));
+                level = Math.max(level, computeCommitLevel(parent) + 1);
             }
         }
         commitLevels[sha] = level;
@@ -699,7 +567,6 @@ exports.levelizeCommitTrees = function (commits, shas) {
  */
 exports.buildDirectoryTree = function (flatTree) {
     let result = {};
-    let gitModulesData = "";
 
     for (let path in flatTree) {
         const paths = path.split("/");
@@ -724,23 +591,11 @@ exports.buildDirectoryTree = function (flatTree) {
         assert.notProperty(tree, leafPath, `duplicate entry for ${path}`);
         const data = flatTree[path];
         tree[leafPath] = data;
-        if (data instanceof RepoAST.Submodule) {
-            const modulesStr = `\
-[submodule "${path}"]
-\tpath = ${path}
-\turl = ${data.url}
-`;
-            gitModulesData += modulesStr;
-        }
     }
 
     assert.notProperty(result,
                        SubmoduleConfigUtil.modulesFileName,
                        "no explicit changes to the git modules file");
-    if ("" !== gitModulesData) {
-        result[SubmoduleConfigUtil.modulesFileName] = gitModulesData;
-    }
-
     return result;
 };
 
@@ -770,8 +625,12 @@ exports.writeRAST = co.wrap(function *(ast, path) {
 
     yield configRepo(repo);
 
-    const commits = yield writeAllCommits(repo, ast.commits);
-    const resultRepo = yield configureRepo(repo, ast, commits.oldToNew);
+    const treeCache = {};
+    const commits = yield writeAllCommits(repo, ast.commits, treeCache);
+    const resultRepo = yield configureRepo(repo,
+                                           ast,
+                                           commits.oldToNew,
+                                           treeCache);
 
     return {
         repo: resultRepo,
@@ -848,7 +707,8 @@ exports.writeMultiRAST = co.wrap(function *(repos, rootDirectory) {
 
     // Write them:
 
-    const commitMaps = yield writeAllCommits(commitRepo, commits);
+    const treeCache = {};
+    const commitMaps = yield writeAllCommits(commitRepo, commits, treeCache);
 
     // We make a ref for each commit so that it is pulled down correctly.
 
@@ -884,7 +744,7 @@ exports.writeMultiRAST = co.wrap(function *(repos, rootDirectory) {
         yield NodeGit.Remote.delete(repo, "origin");
 
         // Then set up the rest of the repository.
-        yield configureRepo(repo, ast, commitMaps.oldToNew);
+        yield configureRepo(repo, ast, commitMaps.oldToNew, treeCache);
         const cleanupString = `\
 git -C '${repo.path()}' -c gc.reflogExpire=0 -c gc.reflogExpireUnreachable=0 \
 -c gc.rerereresolved=0 -c gc.rerereunresolved=0 \

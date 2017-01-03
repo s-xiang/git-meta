@@ -69,37 +69,22 @@ describe("WriteRepoASTUtil", function () {
             "multiple": {
                 input: "B:C2-1;Bx=2",
                 shas: ["1", "2"],
-                expected: [["1","2"]],
+                expected: [["1"], ["2"]],
             },
-            "one deep": {
+            "one from parent, one from sub": {
                 input: "B:C2-1;C3-1 x=Sa:2;Bx=2;By=3",
                 shas: ["1", "2", "3"],
-                expected: [["1","2"],["3"]],
+                expected: [["1"], ["2"], ["3"]],
             },
             "two deep": {
                 input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
                 shas: ["1", "3", "4", "2"],
-                expected: [["1","3"],["4"],["2"]],
-            },
-            "skipped parent": {
-                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
-                shas: ["1", "3", "2"],
-                expected: [["1", "2", "3"]],
+                expected: [["1"],["3","4"],["2"]],
             },
             "skipped sub": {
                 input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:4;Bx=3;By=4;Bz=2",
                 shas: ["3", "4", "2"],
                 expected: [["3", "4"],["2"]],
-            },
-            "two by two": {
-                input: "B:C3-1;C4-1 x=Sa:1;C2-4 y=Sq:3;Bx=3;By=4;Bz=2",
-                shas: ["1", "2", "3", "4"],
-                expected: [["1","3"],["2","4"]],
-            },
-            "child same as parent": {
-                input: "B:C3-1 x=Sa:1;C2-3;Bx=2",
-                shas: ["1", "2", "3"],
-                expected: [["1"],["2","3"]],
             },
         };
         Object.keys(cases).forEach(caseName => {
@@ -156,22 +141,6 @@ describe("WriteRepoASTUtil", function () {
                         c: { d: "2", },
                         b: "1",
                     },
-                },
-            },
-            "with submodule": {
-                input: { "a/b": "2", "q/r": new RepoAST.Submodule("q", "1") },
-                expected: {
-                    a: {
-                        b: "2",
-                    },
-                    q: {
-                        r: new RepoAST.Submodule("q", "1"),
-                    },
-                    ".gitmodules": `\
-[submodule "q/r"]
-\tpath = q/r
-\turl = q
-`,
                 },
             },
         };
