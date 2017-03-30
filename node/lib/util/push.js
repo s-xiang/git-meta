@@ -147,3 +147,18 @@ exports.push = co.wrap(function *(repo, remoteName, source, target, force) {
         throw new UserError(`Failed to push meta-repo: ${result}`);
     }
 });
+
+/**
+ * Push the specified `refs` to the specified `remote` from the specified
+ * `repo`; overwrite non-fast-forward targets if the specified `force` is true.
+ * Note that each element of `refs` must have a `src` field denoting the source
+ * branch and a `dst` field denoting the destination branch; if
+ * `"" === src` then the destination branch will be removed.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {String}             remote
+ * @param {Array}              refs
+ * @param {Boolean}            force
+ * /
+exports.pushRefs = co.wrap(function *(repo, remote, refs, force) {
+});
