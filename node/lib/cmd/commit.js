@@ -80,6 +80,14 @@ Amend the last commit, including newly staged chnages and, (if -a is \
 specified) modifications.  Will fail unless all submodules changed in HEAD \
 have matching commits and have no new commits.`,
     });
+    parser.addArgument(["-i", "--interactive"], {
+        required: false,
+        action: "storeConst",
+        constant: true,
+        help: `\
+Interactively choose which meta- and sub-repositories to commit, and what
+message to use with each one.`,
+    });
     parser.addArgument(["file"], {
         type: "string",
         help: `\
@@ -173,23 +181,36 @@ const doCommit = co.wrap(function *(args) {
         return;
     }
 
-    // If no message on the command line, prompt for one.
+    let message = args.message;
+    let subMessages;
 
-    if (null === args.message) {
+    if (args.interactive) {
+        // If 'interactive' mode is requested, ask the user to specify which
+        // repos are committed and with what commit messages.
+
+        const prompt = Commit.formatSplitCommitEditorPrompt(repoStatus);
+        const userText = yield GitUtil.editMessage(repo, prompt);
+        const userData = Commit.parseSplitCommitMessages(userText);
+        message = userData.metaMessage;
+        subMessages = userData.subMessages;
+    }
+    else if (null === message) {
+        // If no message on the command line, prompt for one.
+
         const initialMessage = Commit.formatEditorPrompt(repoStatus, cwd);
         const rawMessage = yield GitUtil.editMessage(repo, initialMessage);
-        args.message = GitUtil.stripMessage(rawMessage);
+        message = GitUtil.stripMessage(rawMessage);
     }
 
-    if ("" === args.message) {
+    if ("" === message) {
         abortForNoMessage();
     }
 
     if (usingPaths) {
-        yield Commit.commitPaths(repo, repoStatus, args.message);
+        yield Commit.commitPaths(repo, repoStatus, message, subMessages);
     }
     else {
-        yield Commit.commit(repo, args.all, repoStatus, args.message);
+        yield Commit.commit(repo, args.all, repoStatus, message, subMessages);
     }
 });
 
@@ -207,6 +228,11 @@ const doAmend = co.wrap(function *(args) {
 
     if (usingPaths) {
         throw new UserError("Paths not supported with amend yet.");
+    }
+
+    if (args.interactive) {
+        throw new UserError(`\
+TODO: interactive commits are not yet supported with '--amend'.`);
     }
 
     const repo = yield GitUtil.getCurrentRepo();
@@ -312,6 +338,10 @@ const doAmend = co.wrap(function *(args) {
 exports.executeableSubcommand = function (args) {
     if (args.all && 0 !== args.file.length) {
         console.error("The use of '-a' and files does not make sense.");
+        process.exit(1);
+    }
+    if (args.message && args.interactive) {
+        console.error("The use of '-i' and '-m' does not make sense.");
         process.exit(1);
     }
     if (args.amend) {
