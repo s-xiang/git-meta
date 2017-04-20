@@ -274,6 +274,216 @@ Untracked files:
         });
     });
 
+    describe("shouldCommit", function () {
+        const cases = {
+            "trivial": {
+                status: new RepoStatus(),
+                subMessages: {},
+                expected: false,
+            },
+            "staged meta": {
+                status: new RepoStatus({
+                    staged: {
+                        foo: FILESTATUS.ADDED,
+                    },
+                }),
+                subMessages: {},
+                expected: true,
+            },
+            "unchanged sub": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: false,
+                subMessages: {},
+            },
+            "unchanged open sub": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "1",
+                            }), RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: false,
+                subMessages: {},
+            },
+            "index commit change in sub": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("2",
+                                                       "/a",
+                                                       RELATION.AHEAD),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {},
+            },
+            "index url change in sub": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/b",
+                                                       RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {},
+            },
+            "deleted sub in index": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: null,
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {},
+            },
+            "new sub": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: null,
+                            index: new Submodule.Index("1", "/a", null),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {},
+            },
+            "new workdir commit": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "2",
+                            }), RELATION.AHEAD),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {},
+            },
+            "staged workdir change": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "1",
+                                staged: {
+                                    foo: FILESTATUS.ADDED,
+                                },
+                            }), RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: {
+                    "foo": "meh",
+                },
+            },
+            "staged workdir change -- undefined subMessages": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "1",
+                                staged: {
+                                    foo: FILESTATUS.ADDED,
+                                },
+                            }), RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: true,
+                subMessages: undefined,
+            },
+            "staged workdir change -- missing from subMessages": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "1",
+                                staged: {
+                                    foo: FILESTATUS.ADDED,
+                                },
+                            }), RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: false,
+                subMessages: {},
+            },
+            "unstaged workdir change": {
+                status: new RepoStatus({
+                    submodules: {
+                        foo: new Submodule({
+                            commit: new Submodule.Commit("1", "/a"),
+                            index: new Submodule.Index("1",
+                                                       "/a",
+                                                       RELATION.SAME),
+                            workdir: new Submodule.Workdir(new RepoStatus({
+                                headCommit: "1",
+                                workdir: {
+                                    foo: FILESTATUS.ADDED,
+                                },
+                            }), RELATION.SAME),
+                        }),
+                    },
+                }),
+                expected: false,
+                subMessages: {
+                    "foo": "meh",
+                },
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, function () {
+                const result = Commit.shouldCommit(c.status, c.subMessages);
+                assert.equal(result, c.expected);
+            });
+        });
+    });
+
     describe("getCommitStatus", function () {
         // We don't need to test the raw status reading operations here; those
         // are tested elsewhere.  We just need to test that all the arguments
@@ -594,6 +804,12 @@ x=E:Cx-2 x=Sq:1;Bmaster=x;I s=~,x=~`,
                 },
                 expected:
                     "x=U:Cx-2 s=Sa:s;Os Cthis message#s-1 u=v!H=s;Bmaster=x",
+            },
+            "new commit in a submodule": {
+                initial: "a=S|x=U:Ca-1;Bx=a;I s=Sa:a;Ba=a",
+                message: "message",
+                expected: "x=E:Cx-2 s=Sa:a;Bmaster=x",
+                doAll: false,
             },
         };
         Object.keys(cases).forEach(caseName => {

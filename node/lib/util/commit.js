@@ -258,6 +258,127 @@ const stageOpenSubmodules = co.wrap(function *(index, submodules) {
 });
 
 /**
+ * Return true if a commit should be generated for the repo having the
+ * specified `status`; if the optionally specified `subMessages` is provided,
+ * ignore staged changes in submodules unless they have entries in
+ * `subMessages`.
+ *
+ * @param {RepoStatus} status
+ * @param {Object}     [subMessages]
+ * @return {Boolean}
+ */
+exports.shouldCommit = function (status, subMessages) {
+    assert.instanceOf(status, RepoStatus);
+    if (undefined !== subMessages) {
+        assert.isObject(subMessages);
+    }
+
+    // If the meta-repo has staged commits, we must commit.
+
+    if (!status.isIndexClean()) {
+        return true;                                                  // RETURN
+    }
+
+    const subs = status.submodules;
+    const SAME = RepoStatus.Submodule.COMMIT_RELATION.SAME;
+
+    // Look through the submodules looking for one that would require a new
+    // commit in the meta-repo.
+
+    for (let name in subs) {
+        const sub = subs[name];
+        const commit = sub.commit;
+        const index = sub.index;
+        const workdir = sub.workdir;
+        if (null !== workdir) {
+            if (SAME !== workdir.relation) {
+                // changed commit in workdir
+
+                return true;                                          // RETURN
+            }
+            else if ((undefined === subMessages || (name in subMessages)) &&
+                     !workdir.status.isIndexClean()) {
+                // If this sub-repo is to be committed, and it has a dirty
+                // index, then we must commit.
+
+                return true;                                          // RETURN
+            }
+        }
+        else if (null === index ||                // deleted
+                 null === commit ||               // added
+                 SAME !== index.relation ||       // changed commit
+                 commit.url !== index.url) {      // changed URL
+            // changed commit in index
+
+            return true;                                              // RETURN
+        }
+    }
+
+    return false;
+};
+
+///**
+// */
+//exports.commitSubmodule = co.wrap(function *(repo,
+//                                             name,
+//                                             metaMessage,
+//                                             subStatuses,
+//                                             subMessages,
+//                                             all) {
+//    let message = metaMessage;
+//    let commit = null;
+//
+//    // If we're explicitly providing submodule messages, look the commit
+//    // message up for this submodule and return early if there isn't one.
+//
+//    if (undefined !== subMessages) {
+//        message = subMessages[name];
+//        if (undefined === message) {
+//            return;                                               // RETURN
+//        }
+//    }
+//    const status = subStatuses[name];
+//    const repoStatus = (status.workdir && status.workdir.status) || null;
+//    let committed = null;
+//    if (null !== repoStatus) {
+//        const subRepo = yield SubmoduleUtil.getRepo(repo, name);
+//        committed = yield commitRepo(subRepo,
+//                                     repoStatus.staged,
+//                                     all,
+//                                     message,
+//                                     false,
+//                                     repo.signature());
+//    }
+//    if (null !== committed) {
+//        commit = committed.tostrS();
+//    }
+//
+//    // Note that we need to stage the submodule in the meta-repo if:
+//    // - we made a commit
+//    // - there was already a new commit in the workdir
+//
+//    if (null !== committed ||
+//        (null !== repoStatus &&
+//         (repoStatus.headCommit !== status.index.sha))) {
+//        subsChanged = true;
+//    }
+//
+//    // Othwerise, note that we even if we don't need to stage the sub, we
+//    // did have a change if:
+//    // - the sub was added
+//    // - the sub was removed
+//    // - the sub had a new commit in the index
+//    // - the sub had a URL change
+//
+//    else if (status.commit === null ||
+//             status.index === null ||
+//             status.commit.sha !== status.index.sha ||
+//             status.commit.url !== status.index.url) {
+//        subsChanged = true;
+//    }
+//});
+
+/**
  * Create a commit across modified repositories and the specified `metaRepo`
  * with the specified `message`; if `null === message`, do not create a commit
  * for the meta-repo.  If the specified `all` is provided, automatically stage
