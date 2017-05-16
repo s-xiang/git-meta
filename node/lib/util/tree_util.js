@@ -34,6 +34,8 @@ const assert  = require("chai").assert;
 const co      = require("co");
 const NodeGit = require("nodegit");
 
+const RepoStatus = require("./repo_status");
+
 /**
  * Return a nested tree mapping the flat structure in the specified `flatTree`,
  * which consists of a map of paths to values, into a hierarchical structure
@@ -191,3 +193,83 @@ exports.writeTree = co.wrap(function *(repo, baseTree, changes) {
     });
     return yield writeSubtree(baseTree, directory);
 });
+
+/**
+ * Return an blob ID for the specified `filename` in the specified `repo`.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {String}             filename
+ * @return {NodeGit.Oid}
+ */
+exports.hashFile = function (repo, filename) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isString(filename);
+
+    // 'createFromDisk' is unfinished; instead of returning an id, it
+    // takes an ID object and writes into it, unlike the rest of its
+    // brethern on `Blob`.  TODO: patch nodegit with corrected API.
+
+    const placeholder =
+            NodeGit.Oid.fromString("0000000000000000000000000000000000000000");
+    NodeGit.Blob.createFromDisk(placeholder, repo, filename);
+    return placeholder;
+};
+
+/**
+ * Return a map from path to `Change` for the working directory of the
+ * specified `repo` having the specified `status`.  If the specified `all` is
+ * true, include unstaged changes.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {RepoStatus}         status
+ * @param {Boolean}            all
+ * @return {Object}
+ */
+exports.listWorkdirChanges = function (repo, status, all) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.instanceOf(status, RepoStatus);
+    assert.isBoolean(all);
+
+    const FILESTATUS = RepoStatus.FILESTATUS;
+    const FILEMODE = NodeGit.TreeEntry.FILEMODE;
+
+    const result = {};
+
+    // first, plain files.
+
+    const workdir = status.workdir;
+    for (let path in workdir) {
+        switch (workdir[path]) {
+            case FILESTATUS.ADDED:
+                if (all) {
+                    result[path] = new Change(exports.hashFile(repo, path),
+                                              FILEMODE.BLOB);
+                }
+                break;
+            case FILESTATUS.MODIFIED:
+                result[path] = new Change(exports.hashFile(repo, path),
+                                          FILEMODE.BLOB);
+                break;
+            case FILESTATUS.REMOVED:
+                result[path] = null;
+                break;
+        }
+    }
+
+    // then submodules; we're adding open submodules with different HEAD
+    // commits.
+
+    const submodules = status.submodules;
+    for (let name in submodules) {
+        const sub = submodules[name];
+        const wd = sub.workdir;
+        if (null !== wd &&
+            RepoStatus.Submodule.COMMIT_RELATION.SAME !== wd.relation) {
+            result[name] = new Change(
+                                  NodeGit.Oid.fromString(wd.status.headCommit),
+                                  FILEMODE.COMMIT);
+        }
+    }
+
+    return result;
+};

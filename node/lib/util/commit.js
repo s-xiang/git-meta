@@ -560,14 +560,8 @@ exports.writeRepoPaths = co.wrap(function *(repo, status, message) {
         }
         else {
             const filePath = path.join(workdir, filename);
-
-            // 'createFromDisk' is unfinished; instead of returning an id, it
-            // takes an ID object and writes into it, unlike the rest of its
-            // brethern on `Blob`.  TODO: patch nodegit with corrected API.
-
-            const idPlaceholder = headCommit.id();  // need a place to load ids
-            NodeGit.Blob.createFromDisk(idPlaceholder, repo, filePath);
-            changes[filename] = new Change(idPlaceholder, FILEMODE.BLOB);
+            const blobId = GitUtil.hashFile(repo, filePath);
+            changes[filename] = new Change(blobId, FILEMODE.BLOB);
 
             yield index.addByPath(filename);
         }
