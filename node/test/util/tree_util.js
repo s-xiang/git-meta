@@ -243,7 +243,7 @@ describe("TreeUtil", function () {
             const filename = "foo";
             const filepath = path.join(repo.workdir(), filename);
             yield fs.writeFile(filepath, content);
-            const result = TreeUtil.hashFile(repo, filepath);
+            const result = TreeUtil.hashFile(repo, filename);
             const db = yield repo.odb();
             const BLOB = 3;
             const expected = yield db.write(content, content.length, BLOB);
@@ -255,6 +255,7 @@ describe("TreeUtil", function () {
         const FILESTATUS = RepoStatus.FILESTATUS;
         const Submodule  = RepoStatus.Submodule;
         const RELATION   = Submodule.COMMIT_RELATION;
+        const FILEMODE   = NodeGit.TreeEntry.FILEMODE;
         it("removal", co.wrap(function *() {
             const repo = yield TestUtil.createSimpleRepository();
             const status = new RepoStatus({
@@ -276,9 +277,9 @@ describe("TreeUtil", function () {
             const db = yield repo.odb();
             const BLOB = 3;
             const id  = yield db.write(content, content.length, BLOB);
-            assert.deepEqual(result, {
-                foo: new Change(id, FILEMODE.BLOB),
-            });
+            assert.deepEqual(Object.keys(result), ["foo"]);
+            assert.equal(result.foo.id.tostrS(), id.tostrS());
+            assert.equal(result.foo.mode, FILEMODE.BLOB);
         }));
         it("unchanged submodule", co.wrap(function *() {
             const repo = yield TestUtil.createSimpleRepository();
@@ -348,15 +349,15 @@ describe("TreeUtil", function () {
             const filepath = path.join(repo.workdir(), filename);
             yield fs.writeFile(filepath, content);
             const status = new RepoStatus({
-                workdir: { foo: FILESTATUS.ADDED },
+                workdir: { foo: FILESTATUS.ADDED, },
             });
             const result = TreeUtil.listWorkdirChanges(repo, status, true);
             const db = yield repo.odb();
             const BLOB = 3;
             const id  = yield db.write(content, content.length, BLOB);
-            assert.deepEqual(result, {
-                foo: new Change(id, FILEMODE.BLOB),
-            });
+            assert.deepEqual(Object.keys(result), ["foo"]);
+            assert.equal(result.foo.id.tostrS(), id.tostrS());
+            assert.equal(result.foo.mode, FILEMODE.BLOB);
         }));
     });
 });

@@ -33,6 +33,7 @@
 const assert  = require("chai").assert;
 const co      = require("co");
 const NodeGit = require("nodegit");
+const path    = require("path");
 
 const RepoStatus = require("./repo_status");
 
@@ -211,7 +212,8 @@ exports.hashFile = function (repo, filename) {
 
     const placeholder =
             NodeGit.Oid.fromString("0000000000000000000000000000000000000000");
-    NodeGit.Blob.createFromDisk(placeholder, repo, filename);
+    const filepath = path.join(repo.workdir(), filename);
+    NodeGit.Blob.createFromDisk(placeholder, repo, filepath);
     return placeholder;
 };
 
