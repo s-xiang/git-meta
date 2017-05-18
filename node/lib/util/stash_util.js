@@ -115,6 +115,13 @@ exports.save = co.wrap(function *(repo, status, all) {
     const subChanges = {};  // name to TreeUtil.Change
     const subRepos   = {};  // name to NodeGit.Repository
 
+    // First, we process the submodules.  If a submodule is open and dirty,
+    // we'll create the stash commits in its repo, populate `subResults` with
+    // the `Stash.Submodule` that will be returned, `subChanges` with the sha
+    // of the commit to be made to be used in generating the new submodule
+    // tree, and `subRepos` to cache the open repo for each sub to be used
+    // later.
+
     const submodules = status.submodules;
     yield Object.keys(submodules).map(co.wrap(function *(name) {
         const sub = submodules[name];
@@ -127,9 +134,15 @@ exports.save = co.wrap(function *(repo, status, all) {
         const subRepo = yield SubmoduleUtil.getRepo(repo, name);
         subRepos[name] = subRepo;
         const head = yield subRepo.getHeadCommit();
+
+        // Put together the trees for the stash commits for this repo.
+
         const stashed = yield exports.stashRepo(subRepo, wd.status, all);
         const indexTree = yield NodeGit.Tree.lookup(subRepo, stashed.index);
         const wdTree = yield NodeGit.Tree.lookup(subRepo, stashed.workdir);
+
+        // Make the two commits -- for index and workdir -- for this repo.
+
         const indexCommit = yield createCommit(subRepo,
                                                indexTree,
                                                "index",
@@ -138,17 +151,25 @@ exports.save = co.wrap(function *(repo, status, all) {
                                           wdTree,
                                           "stash",
                                           [head, indexCommit]);
+
+        // Create a ref; this prevents the commits from being GC'd.
+
         yield NodeGit.Reference.create(subRepo,
                                        "refs/sub-stash",
                                        commit.id(),
                                        1,
                                        "sub stash");
+
+        // Record the values we've created.
+
         subResults[name] = new Stash.Submodule(indexCommit.id().tostrS(),
                                                commit.id().tostrS());
         subChanges[name] = new TreeUtil.Change(
                                             commit.id(),
                                             NodeGit.TreeEntry.FILEMODE.COMMIT);
     }));
+
+    // Make the commits that will compose the stash.
 
     const indexCommit = yield createCommit(repo, headTree, "index", []);
     const subsTree = yield TreeUtil.writeTree(repo, headTree, subChanges);
@@ -157,6 +178,8 @@ exports.save = co.wrap(function *(repo, status, all) {
                                            headTree,
                                            "stash",
                                            [head, indexCommit, subsCommit]);
+    // Update the stash ref
+
     yield NodeGit.Reference.create(repo,
                                    "refs/meta-stash",
                                    stashCommit.id(),
