@@ -42,14 +42,19 @@ class Submodule {
      * Create a new `Submodule` object having the specified `indexSha`, and
      * `workdirSha`.
      *
-     * @param {String} indexSha   of the commit representint state of index
-     * @param {String} workdirSha of this stash, tree is workdir state
+     * @param {String} indexSha          state of index
+     * @param {String|null} untrackedSha tree refs untracked files
+     * @param {String} workdirSha        tree is workdir state
      */
-    constructor(indexSha, workdirSha) {
+    constructor(indexSha, untrackedSha, workdirSha) {
         assert.isString(indexSha);
+        if (null !== untrackedSha) {
+            assert.isString(untrackedSha);
+        }
         assert.isString(workdirSha);
 
         this.d_indexSha = indexSha;
+        this.d_untrackedSha = untrackedSha;
         this.d_workdirSha = workdirSha;
         Object.freeze(this);
     }
@@ -61,6 +66,15 @@ class Submodule {
      */
     get indexSha() {
         return this.d_indexSha;
+    }
+
+    /**
+     * the sha of the commit whose tree describes the untracked files in
+     * this submodule
+     * @property {String|null}
+     */
+    get untrackedSha() {
+        return this.d_untrackedSha;
     }
 
     /**

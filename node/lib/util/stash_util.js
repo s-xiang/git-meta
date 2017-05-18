@@ -113,7 +113,7 @@ exports.save = co.wrap(function *(repo, status, all) {
 
     const subResults = {};  // name to Stash.Submodule
     const subChanges = {};  // name to TreeUtil.Change
-    const subRepos   = {};  // name to NodeGit.Repository
+    const subRepos   = {};  // name to submodule open repo
 
     // First, we process the submodules.  If a submodule is open and dirty,
     // we'll create the stash commits in its repo, populate `subResults` with
@@ -126,46 +126,33 @@ exports.save = co.wrap(function *(repo, status, all) {
     yield Object.keys(submodules).map(co.wrap(function *(name) {
         const sub = submodules[name];
         const wd = sub.workdir;
-        if (null === wd || wd.status.isClean()) {
+        if (null === wd ||
+            (wd.status.isClean() &&
+                (!all || 0 === Object.keys(wd.status.workdir).length))) {
             // Nothing to do for closed or clean subs
 
             return;                                                   // RETURN
         }
         const subRepo = yield SubmoduleUtil.getRepo(repo, name);
         subRepos[name] = subRepo;
-        const head = yield subRepo.getHeadCommit();
-
-        // Put together the trees for the stash commits for this repo.
-
-        const stashed = yield exports.stashRepo(subRepo, wd.status, all);
-        const indexTree = yield NodeGit.Tree.lookup(subRepo, stashed.index);
-        const wdTree = yield NodeGit.Tree.lookup(subRepo, stashed.workdir);
-
-        // Make the two commits -- for index and workdir -- for this repo.
-
-        const indexCommit = yield createCommit(subRepo,
-                                               indexTree,
-                                               "index",
-                                               []);
-        const commit = yield createCommit(subRepo,
-                                          wdTree,
-                                          "stash",
-                                          [head, indexCommit]);
-
-        // Create a ref; this prevents the commits from being GC'd.
-
-        yield NodeGit.Reference.create(subRepo,
-                                       "refs/sub-stash",
-                                       commit.id(),
-                                       1,
-                                       "sub stash");
+        const FLAGS = NodeGit.Stash.FLAGS;
+        const flags = all ? FLAGS.INCLUDE_UNTRACKED : FLAGS.DEFAULT;
+        const stashId = yield NodeGit.Stash.save(subRepo, sig, "stash", flags);
+        const stashCommit = yield subRepo.getCommit(stashId);
+        const indexCommit = yield stashCommit.parent(1);
+        let untrackedSha = null;
+        if (all) {
+            const untrackedCommit = yield stashCommit.parent(2);
+            untrackedSha = untrackedCommit.id().tostrS();
+        }
+        subResults[name] = new Stash.Submodule(indexCommit.id().tostrS(),
+                                               untrackedSha,
+                                               stashId.tostrS());
 
         // Record the values we've created.
 
-        subResults[name] = new Stash.Submodule(indexCommit.id().tostrS(),
-                                               commit.id().tostrS());
         subChanges[name] = new TreeUtil.Change(
-                                            commit.id(),
+                                            stashId,
                                             NodeGit.TreeEntry.FILEMODE.COMMIT);
     }));
 
@@ -178,26 +165,56 @@ exports.save = co.wrap(function *(repo, status, all) {
                                            headTree,
                                            "stash",
                                            [head, indexCommit, subsCommit]);
+
+    const stashId  = stashCommit.id();
+    const stashSha = stashId.tostrS();
+    // Make synthetic-meta-ref style refs for sub-repos.
+
+    yield Object.keys(subRepos).map(co.wrap(function *(name) {
+        const sha = subResults[name].workdirSha;
+        const refName = `refs/sub-stash/${sha}`;
+        yield NodeGit.Reference.create(subRepos[name],
+                                       refName,
+                                       sha,
+                                       1,
+                                       "sub stash");
+    }));
+
     // Update the stash ref
 
     yield NodeGit.Reference.create(repo,
                                    "refs/meta-stash",
-                                   stashCommit.id(),
+                                   stashId,
                                    1,
                                    "meta stash");
-
-    // Now that we've made all the stashes, clean dirty repos.
-
-    yield Object.keys(subRepos).map(co.wrap(function *(name) {
-        const subRepo = subRepos[name];
-        const head = yield subRepo.getHeadCommit();
-        yield NodeGit.Checkout.tree(subRepo, head, {
-            checkoutStrategy: NodeGit.Checkout.STRATEGY.FORCE,
-        });
-    }));
 
     return new Stash(indexCommit.id().tostrS(),
                      subResults,
                      subsCommit.id().tostrS(),
-                     stashCommit.id().tostrS());
+                     stashSha);
 });
+
+/**
+ * Restore the meta stash having the specified commit `id` in the specified
+ * `repo` and return true on success or false if the stash could not be
+ * restored.  The behavior is undefined unless `id` identifies a valid stash
+ * commit.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {String}             id
+ * @return {Boolean}
+exports.load = co.wrap(function *(repo, id) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isString(id);
+
+    const commit = yield repo.getCommit(id);
+    const subsCommit = yield commit.parent(2);
+    const baseSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, commit);
+    const newSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo,
+                                                               subsCommit);
+    let succeeded = true;
+    yield Object.keys(newSubs).map(co.wrap(function *(name) {
+
+    }));
+});
+ */

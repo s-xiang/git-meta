@@ -30,12 +30,48 @@
  */
 "use strict";
 
+const assert  = require("chai").assert;
 const co      = require("co");
 const NodeGit = require("nodegit");
 
 const StashUtil       = require("../../lib/util/stash_util");
 const StatusUtil      = require("../../lib/util/status_util");
 const RepoASTTestUtil = require("../../lib/util/repo_ast_test_util");
+
+/**
+ * Replace all the submodule stash refs in the form of `sub-stash/ss` with
+ * `sub-stash/${physical id}`, where  'physical id' refers to the id of the
+ * submodule stash.
+ */
+function refMapper(expected, mapping) {
+    const refRE  = /(sub-stash\/)(ss)/;
+    const reverseCommitMap = mapping.reverseCommitMap;
+
+    let result = {};
+    Object.keys(expected).forEach(repoName => {
+        const ast = expected[repoName];
+        const submodules = ast.openSubmodules;
+        const newSubs = {};
+        Object.keys(submodules).forEach(subName => {
+            const sub = submodules[subName];
+            const refs = sub.refs;
+            const newRefs = {};
+            Object.keys(refs).forEach(refName => {
+                const logicalId = refs[refName];
+                const physicalId = reverseCommitMap.ss;
+                const newRefName = refName.replace(refRE, `$1${physicalId}`);
+                newRefs[newRefName] = logicalId;
+            });
+            newSubs[subName] = sub.copy({
+                refs: newRefs,
+            });
+        });
+        result[repoName] = ast.copy({
+            openSubmodules: newSubs,
+        });
+    });
+    return result;
+}
 
 describe("StashUtil", function () {
     describe("stashRepo", function () {
@@ -114,6 +150,7 @@ x=E:Ci#i foo=bar,1=1;Cw#w foo=bar,1=1;Bi=i;Bw=w`,
         // - u -- meta-commit tying subs together
         // - sN -- stash commit for submodule N
         // - siN -- stash index commit for submodule N
+        // - suN -- stash for untracked files for submodule N
 
         const cases = {
             "trivial": {
@@ -145,9 +182,10 @@ x=E:Cstash#s-2,i,u ;Cindex#i s=Sa:1;Csubmodules#u s=Sa:1;Fmeta-stash=s`,
                 state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os I foo=bar",
                 expected: `
 x=E:Fmeta-stash=s;
-    Os Fsub-stash=ss!
-       Cstash#ss-1,sis foo=bar!
-       Cindex#sis README.md=hello world,foo=bar;
+    Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       C*#ss-1,sis foo=bar!
+       C*#sis-1 foo=bar;
     Cstash#s-2,i,u ;
     Cindex#i s=Sa:1;
     Csubmodules#u s=Sa:ss;`,
@@ -158,9 +196,10 @@ a=B|
 x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W README.md=meh`,
                 expected: `
 x=E:Fmeta-stash=s;
-    Os Fsub-stash=ss!
-       Cstash#ss-1,sis README.md=meh!
-       Cindex#sis README.md=hello world;
+    Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       C*#ss-1,sis README.md=meh!
+       C*#sis-1 ;
     Cstash#s-2,i,u ;
     Cindex#i s=Sa:1;
     Csubmodules#u s=Sa:ss;`,
@@ -171,9 +210,10 @@ a=B|
 x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W README.md=meh!I foo=bar`,
                 expected: `
 x=E:Fmeta-stash=s;
-    Os Fsub-stash=ss!
-       Cstash#ss-1,sis README.md=meh,foo=bar!
-       Cindex#sis README.md=hello world,foo=bar;
+    Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       C*#ss-1,sis README.md=meh,foo=bar!
+       C*#sis-1 foo=bar;
     Cstash#s-2,i,u ;
     Cindex#i s=Sa:1;
     Csubmodules#u s=Sa:ss;`,
@@ -196,6 +236,9 @@ x=E:Fmeta-stash=s;
                 Object.keys(subs).forEach(name => {
                     const sub = subs[name];
                     commitMap[sub.indexSha] = `si${name}`;
+                    if (null !== sub.untrackedSha) {
+                        commitMap[sub.untrackedSha] = `su${name}`;
+                    }
                     commitMap[sub.workdirSha] = `s${name}`;
                 });
                 return {
@@ -206,8 +249,28 @@ x=E:Fmeta-stash=s;
                 yield RepoASTTestUtil.testMultiRepoManipulator(c.state,
                                                                c.expected,
                                                                stasher,
-                                                               c.fails);
+                                                               c.fails, {
+                    expectedTransformer: refMapper,
+                });
             }));
         });
+        it("open sub with an added file and all", co.wrap(function *() {
+            // TODO: Going to do a sanity check on 'all'.  Something about the
+            // way Git writes this commit breaks my test framework (it looksl
+            // ike a commit is deleting a file that doesn't exist in the stash
+            // commit); I don't know that it's worth diagnosing right now since
+            // I really just need to know that the 'all' flag is passed through
+            // properly.
+
+            const state =
+                        "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W foo=bar";
+            const w = yield RepoASTTestUtil.createMultiRepos(state);
+            const repo = w.repos.x;
+            const status = yield StatusUtil.getRepoStatus(repo, {
+                showMetaChanges: false,
+            });
+            const result = yield StashUtil.save(repo, status, true);
+            assert.isNotNull(result.submodules.s.untrackedSha);
+        }));
     });
 });

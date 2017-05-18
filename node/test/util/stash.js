@@ -36,14 +36,15 @@ const Stash = require("../../lib/util/stash");
 
 describe("Stash", function () {
     it("Submodule", function () {
-        const s = new Stash.Submodule("1", "2");
+        const s = new Stash.Submodule("1", "2", "3");
         assert.equal(s.indexSha, "1");
-        assert.equal(s.workdirSha, "2");
+        assert.equal(s.untrackedSha, "2");
+        assert.equal(s.workdirSha, "3");
         assert.isFrozen(s);
     });
     it("breathing", function () {
         const subs = {
-            x: new Stash.Submodule("3", "4"),
+            x: new Stash.Submodule("2", "3", "4"),
         };
         const s = new Stash("7", subs, "8", "9");
         assert.equal(s.indexSha, "7");
