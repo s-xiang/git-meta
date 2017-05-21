@@ -227,8 +227,9 @@ exports.setStashHead = co.wrap(function *(repo, sha) {
 
 /**
  * Restore the meta stash having the specified commit `id` in the specified
- * `repo` and return true on success or false if the stash could not be
- * restored.  The behavior is undefined unless `id` identifies a valid stash
+ * `repo` and return a map from submodule name to the sha of its stash for each
+ * submodule restored on success, or null if one or more submodules could not
+ * be restored.  The behavior is undefined unless `id` identifies a valid stash
  * commit.
  *
  * @param {NodeGit.Repository} repo
@@ -250,7 +251,7 @@ exports.apply = co.wrap(function *(repo, id) {
     const baseSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, parent);
     const newSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, commit);
     const opener = new Open.Opener(repo, null);
-    let succeeded = true;
+    let result = {};
     yield Object.keys(newSubs).map(co.wrap(function *(name) {
         const stashSha = newSubs[name].sha;
         if (baseSubs[name].sha === stashSha) {
@@ -269,7 +270,7 @@ exports.apply = co.wrap(function *(repo, id) {
             console.error(`\
 Stash commit ${colors.red(stashSha)} is missing from submodule \
 ${colors.red(name)}`);
-            succeeded = false;
+            result = null;
             return;                                                   // RETURN
         }
 
@@ -283,8 +284,11 @@ ${colors.red(name)}`);
             yield NodeGit.Stash.pop(subRepo, 0);
         }
         catch (e) {
-            succeeded = false;
+            result = null;
+        }
+        if (null !== result) {
+            result[name] = stashSha;
         }
     }));
-    return succeeded;
+    return result;
 });

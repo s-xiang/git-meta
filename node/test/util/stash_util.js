@@ -325,7 +325,7 @@ x=E:Fmeta-stash=s;
             "nothing to do": {
                 state: "x=S:Cs-1 ;Bs=s",
                 sha: "s",
-                expectedReturn: true,
+                result: {},
             },
             "untracked": {
                 state: `
@@ -336,7 +336,9 @@ x=U:Cs-2 s=Sa:ss;Bs=s;
        Csis-1 !
        Csus foo=bar;`,
                 sha: "s",
-                expectedReturn: true,
+                result: {
+                    s: "ss",
+                },
                 expected: `
 x=E:Os Fsub-stash/ss=ss!
        Css-1,sis,sus !
@@ -354,7 +356,7 @@ x=U:Cs-2 s=Sa:ss;Bs=s;
        Csis-1 !
        Csus foo=bar;`,
                 sha: "s",
-                expectedReturn: false,
+                result: null,
                 expected: `
 x=E:Os Fsub-stash/ss=ss!
        Fstash=ss!
@@ -366,12 +368,12 @@ x=E:Os Fsub-stash/ss=ss!
             "missing": {
                 state: `a=B:Cy-1;By=y|x=U:Cs-2 s=Sa:y;Bs=s;Os`,
                 sha: "s",
-                expectedReturn: false,
+                result: null,
             },
             "missing, closed": {
                 state: `a=B:Cy-1;By=y|x=U:Cs-2 s=Sa:y;Bs=s`,
                 sha: "s",
-                expectedReturn: false,
+                result: null,
                 expected: "x=E:Os",
             }
         };
@@ -382,7 +384,17 @@ x=E:Os Fsub-stash/ss=ss!
                 assert.property(mapping.reverseCommitMap, c.sha);
                 const sha = mapping.reverseCommitMap[c.sha];
                 const result = yield StashUtil.apply(repo, sha);
-                assert.equal(result, c.expectedReturn);
+                if (null === c.result) {
+                    assert.isNull(result);
+                }
+                else {
+                    const expected = {};
+                    Object.keys(c.result).forEach(name => {
+                        const sha = c.result[name];
+                        expected[name] = mapping.reverseCommitMap[sha];
+                    });
+                    assert.deepEqual(result, expected);
+                }
             });
             it(caseName, co.wrap(function *() {
                 yield RepoASTTestUtil.testMultiRepoManipulator(c.state,
