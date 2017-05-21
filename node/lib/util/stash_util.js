@@ -32,10 +32,11 @@
 
 const assert  = require("chai").assert;
 const co      = require("co");
+const colors  = require("colors");
 const NodeGit = require("nodegit");
 
+const Open          = require("./open");
 const RepoStatus    = require("./repo_status");
-const Stash         = require("./stash");
 const SubmoduleUtil = require("./submodule_util");
 const TreeUtil      = require("./tree_util");
 
@@ -73,47 +74,40 @@ exports.stashRepo = co.wrap(function *(repo, status, all) {
     };
 });
 
+const metaStashRef = "refs/meta-stash";
+
+function makeSubRefName(sha) {
+    return `refs/sub-stash/${sha}`;
+}
+
 /**
  * Save the state of the submodules in the specified, `repo` having the
- * specified `status`, return a `Stash` object describing the created stash
- * commits, and clean the sub-repositories to match their respective HEAD
- * commits.  If the specified `all` is true, include untracked files in the
- * stash and clean them from the working directory.  Do not stash any
- * information relevant to the meta-repo for now as this is not supported;
- * instead, record the tree for the HEAD commit as both workdir and index
- * state, reflecting no change.
+ * specified `status` and clean the sub-repositories to match their respective
+ * HEAD commits.  If the specified `all` is true, include untracked files in
+ * the stash and clean them.  Do not stash any information for the meta-repo
+ * itself.  Update the `refs/meta-stash` reference and its reflog to point to a
+ * new stash commit.  This commit will have the current HEAD of the repository
+ * as its child, and a tree with containing updated shas for stashed submodules
+ * pointing to their respective stash commits.  In each stashed submodule,
+ * crete a synthetic-meta-ref in the form of `refs/sub-stash/${sha}`, where
+ * `sha` is the stash commit of that submodule.  Return a map from submodule
+ * name to stashed commit for each submodule that was stashed.
  *
  * @param {NodeGit.Repository} repo
  * @param {RepoStatus}         status
  * @param {Boolean}            all
- * @return {Stash}
+ * @return {Object}    submodule name to stashed commit
  */
 exports.save = co.wrap(function *(repo, status, all) {
     assert.instanceOf(repo, NodeGit.Repository);
     assert.instanceOf(status, RepoStatus);
     assert.isBoolean(all);
 
-    const head = yield repo.getHeadCommit();
-    const sig = repo.defaultSignature();
-
-    const createCommit = co.wrap(function *(r, tree, message, parents) {
-        const id = yield NodeGit.Commit.create(r,
-                                               null,
-                                               sig,
-                                               sig,
-                                               null,
-                                               message,
-                                               tree,
-                                               parents.length,
-                                               parents);
-        return yield r.getCommit(id);
-    });
-
-    const headTree = yield head.getTree();
-
-    const subResults = {};  // name to Stash.Submodule
+    const subResults = {};  // name to sha
     const subChanges = {};  // name to TreeUtil.Change
     const subRepos   = {};  // name to submodule open repo
+
+    const sig = repo.defaultSignature();
 
     // First, we process the submodules.  If a submodule is open and dirty,
     // we'll create the stash commits in its repo, populate `subResults` with
@@ -138,16 +132,7 @@ exports.save = co.wrap(function *(repo, status, all) {
         const FLAGS = NodeGit.Stash.FLAGS;
         const flags = all ? FLAGS.INCLUDE_UNTRACKED : FLAGS.DEFAULT;
         const stashId = yield NodeGit.Stash.save(subRepo, sig, "stash", flags);
-        const stashCommit = yield subRepo.getCommit(stashId);
-        const indexCommit = yield stashCommit.parent(1);
-        let untrackedSha = null;
-        if (all) {
-            const untrackedCommit = yield stashCommit.parent(2);
-            untrackedSha = untrackedCommit.id().tostrS();
-        }
-        subResults[name] = new Stash.Submodule(indexCommit.id().tostrS(),
-                                               untrackedSha,
-                                               stashId.tostrS());
+        subResults[name] = stashId.tostrS();
 
         // Record the values we've created.
 
@@ -155,24 +140,26 @@ exports.save = co.wrap(function *(repo, status, all) {
                                             stashId,
                                             NodeGit.TreeEntry.FILEMODE.COMMIT);
     }));
-
-    // Make the commits that will compose the stash.
-
-    const indexCommit = yield createCommit(repo, headTree, "index", []);
+    const head = yield repo.getHeadCommit();
+    const headTree = yield head.getTree();
     const subsTree = yield TreeUtil.writeTree(repo, headTree, subChanges);
-    const subsCommit = yield createCommit(repo, subsTree, "submodules", []);
-    const stashCommit = yield createCommit(repo,
-                                           headTree,
-                                           "stash",
-                                           [head, indexCommit, subsCommit]);
+    const stashId = yield NodeGit.Commit.create(repo,
+                                                null,
+                                                sig,
+                                                sig,
+                                                null,
+                                                "stash",
+                                                subsTree,
+                                                1,
+                                                [head]);
 
-    const stashId  = stashCommit.id();
     const stashSha = stashId.tostrS();
+
     // Make synthetic-meta-ref style refs for sub-repos.
 
     yield Object.keys(subRepos).map(co.wrap(function *(name) {
-        const sha = subResults[name].workdirSha;
-        const refName = `refs/sub-stash/${sha}`;
+        const sha = subResults[name];
+        const refName = makeSubRefName(sha);
         yield NodeGit.Reference.create(subRepos[name],
                                        refName,
                                        sha,
@@ -180,18 +167,62 @@ exports.save = co.wrap(function *(repo, status, all) {
                                        "sub stash");
     }));
 
-    // Update the stash ref
+    // Update the stash ref and the ref log
 
     yield NodeGit.Reference.create(repo,
-                                   "refs/meta-stash",
+                                   metaStashRef,
                                    stashId,
                                    1,
                                    "meta stash");
 
-    return new Stash(indexCommit.id().tostrS(),
-                     subResults,
-                     subsCommit.id().tostrS(),
-                     stashSha);
+    yield exports.appendReflog(repo, metaStashRef, stashSha);
+    return subResults;
+});
+
+/**
+ * Append an entry to the log for the specified `reference` in the specified
+ * `repo`, pointing to the specified `sha`.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {String}             reference
+ * @param {String}             sha
+ */
+exports.appendReflog = co.wrap(function *(repo, reference, sha) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isString(reference);
+    assert.isString(sha);
+    const log = yield NodeGit.Reflog.read(repo, reference);
+    log.append(NodeGit.Oid.fromString(sha), repo.defaultSignature(), "log");
+    log.write();
+});
+
+/**
+ * Make the commit having the specified `sha` be the top of the stash of the
+ * specified `repo`.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {String}             sha
+ */
+exports.setStashHead = co.wrap(function *(repo, sha) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isString(sha);
+    let currentRef;
+    try {
+        currentRef = yield NodeGit.Reference.lookup(repo, "refs/stash");
+    }
+    catch (e) {
+        // ref doesn't exist
+    }
+    if (undefined !== currentRef && currentRef.target().tostrS() === sha) {
+        // if the stash already points to `sha`, bail
+
+        return;                                                       // RETURN
+    }
+
+    // otherwise, either there is no stash, or it points to the wrong thing
+
+    yield NodeGit.Reference.create(repo, "refs/stash", sha, 1, "stash");
+    yield exports.appendReflog(repo, "refs/stash", sha);
 });
 
 /**
@@ -203,18 +234,57 @@ exports.save = co.wrap(function *(repo, status, all) {
  * @param {NodeGit.Repository} repo
  * @param {String}             id
  * @return {Boolean}
-exports.load = co.wrap(function *(repo, id) {
+ */
+exports.apply = co.wrap(function *(repo, id) {
     assert.instanceOf(repo, NodeGit.Repository);
     assert.isString(id);
 
     const commit = yield repo.getCommit(id);
-    const subsCommit = yield commit.parent(2);
-    const baseSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, commit);
-    const newSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo,
-                                                               subsCommit);
+
+    // TODO: patch libgit2/nodegit: the commit object returned from `parent`
+    // isn't properly configured with a `repo` object, and attempting to use it
+    // in `getSubmodulesForCommit` will fail, so we have to look it up.
+
+    const parentId = (yield commit.parent(0)).id();
+    const parent = yield repo.getCommit(parentId);
+    const baseSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, parent);
+    const newSubs = yield SubmoduleUtil.getSubmodulesForCommit(repo, commit);
+    const opener = new Open.Opener(repo, null);
     let succeeded = true;
     yield Object.keys(newSubs).map(co.wrap(function *(name) {
+        const stashSha = newSubs[name].sha;
+        if (baseSubs[name].sha === stashSha) {
+            // If there is no change in sha, then there is no stash
 
+            return;                                                   // RETURN
+        }
+        const subRepo = yield opener.getSubrepo(name);
+
+        // Try to get the comit for the stash; if it's missing, fail.
+
+        try {
+            yield subRepo.getCommit(stashSha);
+        }
+        catch (e) {
+            console.error(`\
+Stash commit ${colors.red(stashSha)} is missing from submodule \
+${colors.red(name)}`);
+            succeeded = false;
+            return;                                                   // RETURN
+        }
+
+        // Make sure this sha is the current stash.
+
+        yield exports.setStashHead(subRepo, stashSha);
+
+        // And then apply it.
+
+        try {
+            yield NodeGit.Stash.pop(subRepo, 0);
+        }
+        catch (e) {
+            succeeded = false;
+        }
     }));
+    return succeeded;
 });
- */

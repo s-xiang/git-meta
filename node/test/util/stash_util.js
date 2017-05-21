@@ -36,6 +36,7 @@ const NodeGit = require("nodegit");
 
 const StashUtil       = require("../../lib/util/stash_util");
 const StatusUtil      = require("../../lib/util/status_util");
+const SubmoduleUtil   = require("../../lib/util/submodule_util");
 const RepoASTTestUtil = require("../../lib/util/repo_ast_test_util");
 
 /**
@@ -146,8 +147,6 @@ x=E:Ci#i foo=bar,1=1;Cw#w foo=bar,1=1;Bi=i;Bw=w`,
     describe("save", function () {
         // We create stash commits based on the following scheme:
         // - s -- the stash commit
-        // - i -- index commit for the stash
-        // - u -- meta-commit tying subs together
         // - sN -- stash commit for submodule N
         // - siN -- stash index commit for submodule N
         // - suN -- stash for untracked files for submodule N
@@ -155,28 +154,23 @@ x=E:Ci#i foo=bar,1=1;Cw#w foo=bar,1=1;Bi=i;Bw=w`,
         const cases = {
             "trivial": {
                 state: "x=N:C1;Bmaster=1;*=master",
-                expected: `
-x=E:Cstash#s-1,i,u ;Cindex#i 1=1;Csubmodules#u 1=1;Fmeta-stash=s`,
+                expected: `x=E:Cstash#s-1 ;Fmeta-stash=s`,
             },
             "minimal": {
                 state: "x=S:C2-1 README.md;Bmaster=2",
-                expected: `
-x=E:Cstash#s-2,i,u ;Cindex#i ;Csubmodules#u ;Fmeta-stash=s`,
+                expected: `x=E:Cstash#s-2, ;Fmeta-stash=s`,
             },
             "closed sub": {
                 state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2",
-                expected: `
-x=E:Cstash#s-2,i,u ;Cindex#i s=Sa:1;Csubmodules#u s=Sa:1;Fmeta-stash=s`,
+                expected: `x=E:Cstash#s-2, ;Fmeta-stash=s`,
             },
             "open sub": {
                 state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os",
-                expected: `
-x=E:Cstash#s-2,i,u ;Cindex#i s=Sa:1;Csubmodules#u s=Sa:1;Fmeta-stash=s`,
+                expected: `x=E:Cstash#s-2 ;Fmeta-stash=s`,
             },
             "open sub with an added file": {
                 state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W foo=bar",
-                expected: `
-x=E:Cstash#s-2,i,u ;Cindex#i s=Sa:1;Csubmodules#u s=Sa:1;Fmeta-stash=s`,
+                expected: `x=E:Cstash#s-2 ;Fmeta-stash=s`,
             },
             "open sub with index change": {
                 state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os I foo=bar",
@@ -186,9 +180,7 @@ x=E:Fmeta-stash=s;
        Fstash=ss!
        C*#ss-1,sis foo=bar!
        C*#sis-1 foo=bar;
-    Cstash#s-2,i,u ;
-    Cindex#i s=Sa:1;
-    Csubmodules#u s=Sa:ss;`,
+    Cstash#s-2 s=Sa:ss`,
             },
             "open sub with workdir change": {
                 state: `
@@ -200,9 +192,7 @@ x=E:Fmeta-stash=s;
        Fstash=ss!
        C*#ss-1,sis README.md=meh!
        C*#sis-1 ;
-    Cstash#s-2,i,u ;
-    Cindex#i s=Sa:1;
-    Csubmodules#u s=Sa:ss;`,
+    Cstash#s-2 s=Sa:ss`,
             },
             "open sub with index and workdir change": {
                 state: `
@@ -214,9 +204,19 @@ x=E:Fmeta-stash=s;
        Fstash=ss!
        C*#ss-1,sis README.md=meh,foo=bar!
        C*#sis-1 foo=bar;
-    Cstash#s-2,i,u ;
-    Cindex#i s=Sa:1;
-    Csubmodules#u s=Sa:ss;`,
+    Cstash#s-2 s=Sa:ss`,
+            },
+            "open sub with an added file and all": {
+                state: "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W foo=bar",
+                all: true,
+                expected: `
+x=E:Fmeta-stash=s;
+    Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       C*#ss-1,sis,sus !
+       C*#sis-1 !
+       C*#sus foo=bar;
+    Cstash#s-2 s=Sa:ss`,
             },
         };
         Object.keys(cases).forEach(caseName => {
@@ -229,18 +229,27 @@ x=E:Fmeta-stash=s;
                 });
                 const result = yield StashUtil.save(repo, status, all);
                 const commitMap = {};
-                commitMap[result.workdirSha] = "s";
-                commitMap[result.indexSha] = "i";
-                commitMap[result.submodulesSha] = "u";
-                const subs = result.submodules;
-                Object.keys(subs).forEach(name => {
-                    const sub = subs[name];
-                    commitMap[sub.indexSha] = `si${name}`;
-                    if (null !== sub.untrackedSha) {
-                        commitMap[sub.untrackedSha] = `su${name}`;
+                const stashId = yield NodeGit.Reference.lookup(
+                                                            repo,
+                                                            "refs/meta-stash");
+                commitMap[stashId.target().tostrS()] = "s";
+
+                // Look up the commits made for stashed submodules and create
+                // the appropriate mappings.
+
+                for (let subName in result) {
+                    const subSha = result[subName];
+                    commitMap[subSha] = `s${subName}`;
+                    const subRepo = yield SubmoduleUtil.getRepo(repo, subName);
+                    const subStash = yield subRepo.getCommit(subSha);
+                    const indexCommit = yield subStash.parent(1);
+                    commitMap[indexCommit.id().tostrS()] = `si${subName}`;
+                    if (all) {
+                        const untrackedCommit = yield subStash.parent(2);
+                        commitMap[untrackedCommit.id().tostrS()] =
+                                                                `su${subName}`;
                     }
-                    commitMap[sub.workdirSha] = `s${name}`;
-                });
+                }
                 return {
                     commitMap: commitMap,
                 };
@@ -254,23 +263,133 @@ x=E:Fmeta-stash=s;
                 });
             }));
         });
-        it("open sub with an added file and all", co.wrap(function *() {
-            // TODO: Going to do a sanity check on 'all'.  Something about the
-            // way Git writes this commit breaks my test framework (it looksl
-            // ike a commit is deleting a file that doesn't exist in the stash
-            // commit); I don't know that it's worth diagnosing right now since
-            // I really just need to know that the 'all' flag is passed through
-            // properly.
-
-            const state =
-                        "a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os W foo=bar";
-            const w = yield RepoASTTestUtil.createMultiRepos(state);
-            const repo = w.repos.x;
-            const status = yield StatusUtil.getRepoStatus(repo, {
-                showMetaChanges: false,
-            });
-            const result = yield StashUtil.save(repo, status, true);
-            assert.isNotNull(result.submodules.s.untrackedSha);
+    });
+    describe("appendReflog", function () {
+        it("breathing", co.wrap(function *() {
+            const w = yield RepoASTTestUtil.createRepo("S:C2-1;Bmaster=2");
+            const repo = w.repo;
+            const head = yield repo.getHeadCommit();
+            const headSha = head.id().tostrS();
+            const first = yield head.parent(0);
+            const firstSha = first.id().tostrS();
+            yield StashUtil.appendReflog(repo, "refs/foo", headSha);
+            yield StashUtil.appendReflog(repo, "refs/foo", firstSha);
+            const log = yield NodeGit.Reflog.read(repo, "refs/foo");
+            assert.equal(log.entrycount(), 2);
+            const zero = log.entryByIndex(0);
+            assert.equal(zero.idOld().tostrS(), headSha);
+            assert.equal(zero.idNew().tostrS(), firstSha);
+            const one = log.entryByIndex(1);
+            assert.equal(one.idNew().tostrS(), headSha);
         }));
+    });
+    describe("setStashHead", function () {
+        const cases = {
+            "no stash": {
+                state: "x=S",
+                sha: "1",
+                expected: "x=E:Fstash=1",
+                reflogSize: 1,
+            },
+            "wrong stash": {
+                state: "x=S:C2-1;Fstash=2",
+                sha: "1",
+                expected: "x=S:Fstash=1",
+                reflogSize: 1,
+            },
+            "write stash": {
+                state: "x=S:Fstash=1",
+                sha: "1",
+                reflogSize: 0,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            const setter = co.wrap(function *(repos, mapping) {
+                const repo = repos.x;
+                const sha = mapping.reverseCommitMap[c.sha];
+                yield StashUtil.setStashHead(repo, sha);
+                const log = yield NodeGit.Reflog.read(repo, "refs/stash");
+                assert.equal(log.entrycount(), c.reflogSize);
+            });
+            it(caseName, co.wrap(function *() {
+                yield RepoASTTestUtil.testMultiRepoManipulator(c.state,
+                                                               c.expected,
+                                                               setter,
+                                                               c.fails);
+            }));
+        });
+    });
+    describe("apply", function () {
+        const cases = {
+            "nothing to do": {
+                state: "x=S:Cs-1 ;Bs=s",
+                sha: "s",
+                expectedReturn: true,
+            },
+            "untracked": {
+                state: `
+a=B|
+x=U:Cs-2 s=Sa:ss;Bs=s;
+    Os Fsub-stash/ss=ss!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar;`,
+                sha: "s",
+                expectedReturn: true,
+                expected: `
+x=E:Os Fsub-stash/ss=ss!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar!
+       W foo=bar;`
+            },
+            "conflict": {
+                state: `
+a=B|
+x=U:Cs-2 s=Sa:ss;Bs=s;
+    Os Fsub-stash/ss=ss!
+       W foo=baz!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar;`,
+                sha: "s",
+                expectedReturn: false,
+                expected: `
+x=E:Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar!
+       W foo=baz;`
+            },
+            "missing": {
+                state: `a=B:Cy-1;By=y|x=U:Cs-2 s=Sa:y;Bs=s;Os`,
+                sha: "s",
+                expectedReturn: false,
+            },
+            "missing, closed": {
+                state: `a=B:Cy-1;By=y|x=U:Cs-2 s=Sa:y;Bs=s`,
+                sha: "s",
+                expectedReturn: false,
+                expected: "x=E:Os",
+            }
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            const applier = co.wrap(function *(repos, mapping) {
+                const repo = repos.x;
+                assert.property(mapping.reverseCommitMap, c.sha);
+                const sha = mapping.reverseCommitMap[c.sha];
+                const result = yield StashUtil.apply(repo, sha);
+                assert.equal(result, c.expectedReturn);
+            });
+            it(caseName, co.wrap(function *() {
+                yield RepoASTTestUtil.testMultiRepoManipulator(c.state,
+                                                               c.expected,
+                                                               applier,
+                                                               c.fails);
+            }));
+        });
     });
 });
