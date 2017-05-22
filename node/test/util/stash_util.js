@@ -182,6 +182,17 @@ x=E:Fmeta-stash=s;
        C*#sis-1 foo=bar;
     Cstash#s-2 s=Sa:ss`,
             },
+            "open sub with index and workdir change same file": {
+                state: `
+a=B|x=S:C2-1 README.md,s=Sa:1;Bmaster=2;Os I README.md=foo!W README.md=bar`,
+                expected: `
+x=E:Fmeta-stash=s;
+    Os Fsub-stash/ss=ss!
+       Fstash=ss!
+       C*#ss-1,sis README.md=bar!
+       C*#sis-1 README.md=foo;
+    Cstash#s-2 s=Sa:ss`,
+            },
             "open sub with workdir change": {
                 state: `
 a=B|
@@ -375,7 +386,26 @@ x=E:Os Fsub-stash/ss=ss!
                 sha: "s",
                 result: null,
                 expected: "x=E:Os",
-            }
+            },
+            "index and workdir change same file": {
+                state: `
+a=B|
+x=U:Fmeta-stash=s;Cstash#s-2 s=Sa:ss;
+    Os Bss=ss!
+       C*#ss-1,sis README.md=bar!
+       C*#sis-1 README.md=foo`,
+                sha: "s",
+                result: {
+                    s: "ss",
+                },
+                expected: `
+x=E:Os Bss=ss!
+       C*#ss-1,sis README.md=bar!
+       C*#sis-1 README.md=foo!
+       I README.md=foo!
+       W README.md=bar`,
+            },
+
         };
         Object.keys(cases).forEach(caseName => {
             const c = cases[caseName];
@@ -401,6 +431,158 @@ x=E:Os Fsub-stash/ss=ss!
                                                                c.expected,
                                                                applier,
                                                                c.fails);
+            }));
+        });
+    });
+    describe("removeStash", function () {
+        const cases = {
+            "no log": {
+                init: "x=S",
+                index: 0,
+                log: [],
+                fails: true,
+            },
+            "out of bounds": {
+                init: "x=S:C2;Fmeta-stash=2",
+                index: 1,
+                log: ["2"],
+                fails: true,
+            },
+            "pop top to empty": {
+                init: "x=S:C2;Fmeta-stash=2;B2=2",
+                index: 0,
+                log: ["2"],
+                expected: "x=E:Fmeta-stash=",
+            },
+            "pop top to another": {
+                init: "x=S:C2;C3;Fmeta-stash=2;B2=2;B3=3",
+                index: 0,
+                log: ["2","3"],
+                expected: "x=E:Fmeta-stash=3",
+            },
+            "remove from other end": {
+                init: "x=S:C2;C3;Fmeta-stash=2;B2=2;B3=3",
+                index: 1,
+                log: ["2","3"],
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            const remover = co.wrap(function *(repos, mapping) {
+                const repo = repos.x;
+                const revMap = mapping.reverseCommitMap;
+                const log = yield NodeGit.Reflog.read(repo, "refs/meta-stash");
+                const refLog = c.log;
+                const sig = repo.defaultSignature();
+                for(let i = 0; i < refLog.length; ++i) {
+                    const logSha = refLog[refLog.length - (i + 1)];
+                    const sha = revMap[logSha];
+                    log.append(NodeGit.Oid.fromString(sha), sig, "foo");
+                }
+                log.write();
+                yield StashUtil.removeStash(repo, c.index);
+                const map = mapping.commitMap;
+                const newLog = yield NodeGit.Reflog.read(repo,
+                                                         "refs/meta-stash");
+                const newRefLog = [];
+                for (let i = 0; i < newLog.entrycount(); ++i) {
+                    const entry = newLog.entryByIndex(i);
+                    const sha = map[entry.idNew().tostrS()];
+                    newRefLog.push(sha);
+                }
+                if (0 !== refLog.length) {
+                    refLog.splice(c.index, 1);
+                }
+                assert.deepEqual(newRefLog, refLog);
+            });
+            it(caseName, co.wrap(function *() {
+                yield RepoASTTestUtil.testMultiRepoManipulator(c.init,
+                                                               c.expected,
+                                                               remover,
+                                                               c.fails);
+            }));
+        });
+    });
+    describe("pop", function () {
+        const cases = {
+            "nothing to pop": {
+                init: "x=S",
+            },
+            "failed": {
+                init: `
+a=B|
+x=U:Cs-2 s=Sa:ss;Bs=s;Fmeta-stash=s;
+    Os Bss=ss!
+       W foo=baz!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar;`,
+                fails: true,
+                expected: `
+x=E:Os Bss=ss!Fstash=ss!
+       W foo=baz!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar;`,
+
+            },
+            "works": {
+                init: `
+a=B|
+x=U:Cs-2 s=Sa:ss;Fmeta-stash=s;Bs=s;
+    Os Bss=ss!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar`,
+                log: ["s"],
+                subStash: { s: "ss" },
+                expected: `
+x=E:Fmeta-stash=;
+    Os Bss=ss!
+       Css-1,sis,sus !
+       Csis-1 !
+       Csus foo=bar!
+       W foo=bar`
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            const popper = co.wrap(function *(repos, mapping) {
+                const repo = repos.x;
+                const revMap = mapping.reverseCommitMap;
+                const log = yield NodeGit.Reflog.read(repo, "refs/meta-stash");
+                const refLog = c.log || [];
+                const sig = repo.defaultSignature();
+                for(let i = 0; i < refLog.length; ++i) {
+                    const logSha = refLog[refLog.length - (i + 1)];
+                    const sha = revMap[logSha];
+                    log.append(NodeGit.Oid.fromString(sha), sig, "foo");
+                }
+                log.write();
+
+                // set up stash refs in submodules, if requested
+
+                const subStash = c.subStash || {};
+                for (let subName in subStash) {
+                    const sha = revMap[subStash[subName]];
+                    const subRepo = yield SubmoduleUtil.getRepo(repo, subName);
+                    const refName = `refs/sub-stash/${sha}`;
+                    NodeGit.Reference.create(subRepo,
+                                             refName,
+                                             NodeGit.Oid.fromString(sha),
+                                             1,
+                                             "test stash");
+                }
+
+                yield StashUtil.pop(repo);
+            });
+            it(caseName, co.wrap(function *() {
+                yield RepoASTTestUtil.testMultiRepoManipulator(c.init,
+                                                               c.expected,
+                                                               popper,
+                                                               c.fails, {
+                    expectedTransformer: refMapper,
+                });
             }));
         });
     });

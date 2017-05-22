@@ -35,10 +35,13 @@ const co      = require("co");
 const colors  = require("colors");
 const NodeGit = require("nodegit");
 
-const Open          = require("./open");
-const RepoStatus    = require("./repo_status");
-const SubmoduleUtil = require("./submodule_util");
-const TreeUtil      = require("./tree_util");
+const Open            = require("./open");
+const PrintStatusUtil = require("./print_status_util");
+const RepoStatus      = require("./repo_status");
+const StatusUtil      = require("./status_util");
+const SubmoduleUtil   = require("./submodule_util");
+const TreeUtil        = require("./tree_util");
+const UserError       = require("./user_error");
 
 /**
  * Return the IDs of tress reflecting the current state of the index and
@@ -280,8 +283,12 @@ ${colors.red(name)}`);
 
         // And then apply it.
 
+        const APPLY_FLAGS = NodeGit.Stash.APPLY_FLAGS;
+
         try {
-            yield NodeGit.Stash.pop(subRepo, 0);
+            yield NodeGit.Stash.pop(subRepo, 0, {
+                flags: APPLY_FLAGS.APPLY_REINSTATE_INDEX,
+            });
         }
         catch (e) {
             result = null;
@@ -291,4 +298,91 @@ ${colors.red(name)}`);
         }
     }));
     return result;
+});
+
+/**
+ * Remove, from the stash queue for the specified `repo`, the stash at the
+ * specified `index`.  Throw a `UserError` if no such stash exists.  If
+ * `0 === index` and there are more elements in the queue, set
+ * `refs/meta-stash` to indicate the next element; otherwise, remove
+ * `refs/meta-stash` if the queue is empty.
+ *
+ * @param {NodeGit.Repository} repo
+ * @param {Number}             index
+ */
+exports.removeStash = co.wrap(function *(repo, index) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isNumber(index);
+    const log = yield NodeGit.Reflog.read(repo, metaStashRef);
+    const count = log.entrycount();
+    if (count <= index) {
+        throw new UserError(`Invalid stash index: ${colors.red(index)}.`);
+    }
+    log.drop(index, 1);
+    log.write();
+
+    // We dropped the first element.  We need to update `refs/meta-stash`
+
+    if (0 === index) {
+        if (count > 1) {
+            const entry = log.entryByIndex(0);
+            NodeGit.Reference.create(repo,
+                                     metaStashRef,
+                                     entry.idNew(),
+                                     1,
+                                     "removeStash");
+        }
+        else {
+            NodeGit.Reference.remove(repo, metaStashRef);
+        }
+    }
+});
+
+/**
+ * Attempt to restore the most recent stash in the specified `repo`.  If
+ * successful, make the second stash current; if there is no other stash,
+ * remove `refs/meta-stash`.
+ *
+ * @param {NodeGit.Repository} repo
+ */
+exports.pop = co.wrap(function *(repo) {
+    assert.instanceOf(repo, NodeGit.Repository);
+
+    // Try to look up the meta stash; return early if not found.
+
+    let stashRef;
+    try {
+        stashRef = yield NodeGit.Reference.lookup(repo, metaStashRef);
+    }
+    catch (e) {
+        console.warn("No meta stash found.");
+        return;                                                       // RETURN
+    }
+
+    const stashSha = stashRef.target().tostrS();
+
+    const applyResult = yield exports.apply(repo, stashSha);
+
+    const status = yield StatusUtil.getRepoStatus(repo);
+    process.stdout.write(PrintStatusUtil.printRepoStatus(status, ""));
+
+    // If the application succeeded, remove it.
+
+    if (null !== applyResult) {
+        yield exports.removeStash(repo, 0);
+        console.log(`\
+Dropped ${colors.green(metaStashRef + "@{0}")} ${colors.blue(stashSha)}`);
+
+        // Clean up sub-repo meta-refs
+
+        Object.keys(applyResult).forEach(co.wrap(function *(subName) {
+            const subRepo = yield SubmoduleUtil.getRepo(repo, subName);
+            const refName = makeSubRefName(applyResult[subName]);
+            NodeGit.Reference.remove(subRepo, refName);
+        }));
+    }
+    else {
+        throw new UserError(`\
+Could not restore stash ${colors.red(stashSha)} due to conflicts.`);
+    }
 });

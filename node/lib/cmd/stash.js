@@ -47,43 +47,60 @@ exports.helpText = `Stash changes to the index and working directory`;
  * @property {String}
  */
 exports.description =`
-Provide commands for saving and restoring the state of the monorepo.`;
+Provide commands for saving and restoring the state of the monorepo.
+Note that 'stash' affects only the open repositories of *sub-repos*; as
+currenty implemented, the meta-repo itself is not affected, including staged
+and unstaged commits to the sub-repos.`;
 
 exports.configureParser = function (parser) {
 
-    parser.addArgument(["-p", "--pop"], {
-        help: "restore the last stash",
-        action: "storeConst",
-        constant: true,
-    });
-    parser.addArgument(["--meta"], {
-        help: `
-Include changes to the meta-repo; disabled by default to prevent mistakes.`,
-        action: "storeConst",
-        constant: true,
+    parser.addArgument("type", {
+        help: "'save' to save a stash, 'pop' to restore; 'save' is default",
+        type: "string",
+        nargs: "?",
+        defaultValue: "save",
     });
 
-    const subParsers = parser.addSubparsers({
-        dest: "command",
-    });
-    subParsers.addParser("save", {
-        help: "save changes in the workdir and index",
-    });
-    subParsers.addParser("pop", {
-        help: "restore saved changes",
+    parser.addArgument(["-a", "--all"], {
+        help: `Include untracked files in the stash.`,
+        action: "storeConst",
+        constant: true,
     });
 };
 
 const doPop = co.wrap(function *() {
-    const StashUtil = require("../../lib/util/stash_util");
-    yield StashUtil.pop();
-});
-
-const doSave = co.wrap(function *(args) {
     const GitUtil   = require("../../lib/util/git_util");
     const StashUtil = require("../../lib/util/stash_util");
+
     const repo = yield GitUtil.getCurrentRepo();
-    yield StashUtil.save(repo, args.meta);
+    yield StashUtil.pop(repo);
+});
+
+function cleanSubs(status, all) {
+    const subs = status.submodules;
+    for (let subName in subs) {
+        const sub = subs[subName];
+        const wd = sub.workdir;
+        if (null !== wd && !wd.status.isClean(all)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+const doSave = co.wrap(function *(args) {
+    const GitUtil    = require("../../lib/util/git_util");
+    const StashUtil  = require("../../lib/util/stash_util");
+    const StatusUtil = require("../../lib/util/status_util");
+    const repo = yield GitUtil.getCurrentRepo();
+    const status = yield StatusUtil.getRepoStatus(repo);
+    const all = args.all || false;
+    if (cleanSubs(status, all)) {
+        console.warn("Nothing to stash.");
+        return;                                                       // RETURN
+    }
+    yield StashUtil.save(repo, status, args.all || false);
+    console.log("Saved working directory and index state.");
 });
 
 /**
@@ -92,9 +109,14 @@ const doSave = co.wrap(function *(args) {
  * @param {Object}  args
  */
 exports.executeableSubcommand = function (args) {
-    console.log(args);
-    switch(args.command) {
+    const colors = require("colors");
+
+    switch(args.type) {
         case "pop" : return doPop(args);
         case "save": return doSave(args);
+        default: {
+            console.error(`Invalid type ${colors.red(args.type)}`);
+            process.exit(1);
+        }
     }
 };
