@@ -72,10 +72,11 @@ describe("pull", function () {
             const repo = repos.x;
             yield Pull.pull(repo, c.remote, c.source);
         });
+        const manipulator = c.manipulator || pull;
         it(caseName, co.wrap(function *() {
             yield RepoASTTestUtil.testMultiRepoManipulator(c.initial,
                                                            c.expected,
-                                                           pull,
+                                                           manipulator,
                                                            c.fails);
         }));
     });
