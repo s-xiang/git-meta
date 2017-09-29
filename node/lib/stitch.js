@@ -53,6 +53,16 @@ const parser = new ArgumentParser({
     description: description
 });
 
+parser.addArgument(["-p", "--pre-fetch"], {
+    required: false,
+    action: "storeConst",
+    constant: true,
+    defaultValue: false,
+    help: `If provided, eagerly pre-fetch submodules on head to reduce the \
+overall number of fetches needed.  Recommended for initial run but not for
+updates.`,
+});
+
 parser.addArgument(["-c", "--commitish"], {
     type: "string",
     help: "meta-repo commit to stitch, default is HEAD",
@@ -190,7 +200,7 @@ const preFetch = co.wrap(function *(repo, subs, url) {
     yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, 100);
 });
 
-const stitch = co.wrap(function *(repoPath, commitish, url) {
+const stitch = co.wrap(function *(repoPath, commitish, url, preFetchSubs) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
@@ -200,9 +210,11 @@ const stitch = co.wrap(function *(repoPath, commitish, url) {
     const todo = [commit];
     const commitSubmodules = {};
     const rootSubs = yield getCommitSubmodules(repo, commit, commitSubmodules);
-    console.log("Pre-fetching");
-    yield preFetch(repo, rootSubs, url);
-    console.log("Finished pre-fetching");
+    if (preFetchSubs) {
+        console.log("Pre-fetching");
+        yield preFetch(repo, rootSubs, url);
+        console.log("Finished pre-fetching");
+    }
     while (0 !== todo.length) {
         const next = todo[todo.length - 1];
 
@@ -258,7 +270,7 @@ const stitch = co.wrap(function *(repoPath, commitish, url) {
 co(function *() {
     try {
         const args = parser.parseArgs();
-        yield stitch(args.repo, args.commitish, args.url);
+        yield stitch(args.repo, args.commitish, args.url, args.pre_fetch);
     }
     catch (e) {
         console.error(e.stack);
