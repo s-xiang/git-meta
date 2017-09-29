@@ -39,6 +39,7 @@ const ArgumentParser = require("argparse").ArgumentParser;
 const co             = require("co");
 const NodeGit        = require("nodegit");
 
+const DoWorkQueue         = require("./util/do_work_queue");
 const GitUtil             = require("./util/git_util");
 const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
@@ -176,6 +177,19 @@ const getConvertedSha = co.wrap(function *(repo, sha) {
     return ref.target().tostrS();
 });
 
+const preFetch = co.wrap(function *(repo, subs, url) {
+    const fetcher = co.wrap(function *(name) {
+        const sub = subs[name];
+        const subUrl = SubmoduleConfigUtil.resolveSubmoduleUrl(url, sub.url);
+        try {
+            yield GitUtil.fetchSha(repo, subUrl, sub.sha);
+        }
+        catch (e) {
+        }
+    });
+    yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, 100);
+});
+
 const stitch = co.wrap(function *(repoPath, commitish, url) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
@@ -185,6 +199,10 @@ const stitch = co.wrap(function *(repoPath, commitish, url) {
     const commit = yield repo.getCommit(annotated.id());
     const todo = [commit];
     const commitSubmodules = {};
+    const rootSubs = yield getCommitSubmodules(repo, commit, commitSubmodules);
+    console.log("Pre-fetching");
+    yield preFetch(repo, rootSubs, url);
+    console.log("Finished pre-fetching");
     while (0 !== todo.length) {
         const next = todo[todo.length - 1];
 
