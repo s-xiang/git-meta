@@ -40,6 +40,7 @@ const co             = require("co");
 const NodeGit        = require("nodegit");
 
 const GitUtil             = require("./util/git_util");
+const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
 const TreeUtil            = require("./util/tree_util");
 
@@ -56,6 +57,12 @@ parser.addArgument(["-c", "--commitish"], {
     help: "meta-repo commit to stitch, default is HEAD",
     defaultValue: "HEAD",
     required: false,
+});
+
+parser.addArgument(["-u", "--url"], {
+    type: "string",
+    help: "location of the origin repository where submodules are rooted",
+    required: true,
 });
 
 parser.addArgument(["repo"], {
@@ -80,7 +87,8 @@ const writeMetaCommit = co.wrap(function *(repo,
                                            commit,
                                            parents,
                                            newParents,
-                                           commitSubmodules) {
+                                           commitSubmodules,
+                                           url) {
 
     let parentTree = null;
     let parentSubs = {};
@@ -110,6 +118,9 @@ const writeMetaCommit = co.wrap(function *(repo,
             // TODO: we need to do a fetch here or something to get the
             // relevant sub commits into the target repo.  For now, assume
             // they're present.
+            const subUrl =
+                      SubmoduleConfigUtil.resolveSubmoduleUrl(url, newSub.url);
+            yield GitUtil.fetchSha(repo, subUrl, newSha);
             const subCommit = yield repo.getCommit(newSha);
             const subTreeId = subCommit.treeId();
             const FILEMODE = NodeGit.TreeEntry.FILEMODE;
@@ -158,7 +169,7 @@ const getConvertedSha = co.wrap(function *(repo, sha) {
     return ref.target().tostrS();
 });
 
-const stitch = co.wrap(function *(repoPath, commitish) {
+const stitch = co.wrap(function *(repoPath, commitish, url) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
@@ -205,7 +216,8 @@ const stitch = co.wrap(function *(repoPath, commitish) {
                                                     next,
                                                     parents,
                                                     newParents,
-                                                    commitSubmodules);
+                                                    commitSubmodules,
+                                                    url);
             const convertedRef = convertedRefName(nextSha);
             yield NodeGit.Reference.create(repo,
                                            convertedRef,
@@ -221,7 +233,7 @@ const stitch = co.wrap(function *(repoPath, commitish) {
 co(function *() {
     try {
         const args = parser.parseArgs();
-        yield stitch(args.repo, args.commitish);
+        yield stitch(args.repo, args.commitish, args.url);
     }
     catch (e) {
         console.error(e.stack);
