@@ -40,7 +40,6 @@ const co             = require("co");
 const NodeGit        = require("nodegit");
 
 const GitUtil             = require("./util/git_util");
-const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
 const TreeUtil            = require("./util/tree_util");
 
@@ -72,13 +71,9 @@ const getCommitSubmodules = co.wrap(function *(repo, commit, cache) {
     if (undefined !== cached) {
         return cached;
     }
-    const urls =
-               yield SubmoduleConfigUtil.getSubmodulesFromCommit(repo, commit);
-    const names = Object.keys(urls);
-    const shas =
-            yield SubmoduleUtil.getSubmoduleShasForCommit(repo, names, commit);
-    cache[sha] = shas;
-    return shas;
+    const subs = yield SubmoduleUtil.getSubmodulesForCommit(repo, commit);
+    cache[sha] = subs;
+    return subs;
 });
 
 const writeMetaCommit = co.wrap(function *(repo,
@@ -108,8 +103,10 @@ const writeMetaCommit = co.wrap(function *(repo,
     // changes and additions
 
     for (let name in subs) {
-        const newSha = subs[name];
-        if (newSha !== parentSubs[name]) {
+        const newSub = subs[name];
+        const newSha = newSub.sha;
+        const parentSub = parentSubs[name];
+        if (undefined === parentSub || newSha !== parentSub.sha) {
             // TODO: we need to do a fetch here or something to get the
             // relevant sub commits into the target repo.  For now, assume
             // they're present.
