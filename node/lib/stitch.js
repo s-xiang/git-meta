@@ -140,7 +140,9 @@ const writeMetaCommit = co.wrap(function *(repo,
 });
 
 function convertedRefName(sha) {
-    return `refs/stitched/${sha}`;
+    const pre = sha.slice(0, 2);
+    const post = sha.slice(2);
+    return `refs/stitched/${pre}/${post}`;
 }
 
 const getConvertedSha = co.wrap(function *(repo, sha) {
