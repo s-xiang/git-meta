@@ -120,7 +120,14 @@ const writeMetaCommit = co.wrap(function *(repo,
             // they're present.
             const subUrl =
                       SubmoduleConfigUtil.resolveSubmoduleUrl(url, newSub.url);
-            yield GitUtil.fetchSha(repo, subUrl, newSha);
+            try {
+                yield GitUtil.fetchSha(repo, subUrl, newSha);
+            }
+            catch (e) {
+                console.error("On meta-commit", commit.id().tostrS(),
+                              name, "is missing", newSha);
+                continue;                                           // CONTINUE
+            }
             const subCommit = yield repo.getCommit(newSha);
             const subTreeId = subCommit.treeId();
             const FILEMODE = NodeGit.TreeEntry.FILEMODE;
