@@ -44,8 +44,8 @@ const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
 const TreeUtil            = require("./util/tree_util");
 
-const description = `Stitch together the specified meta-repo commitish from \
-the specified source repo  into the specified target repo.`;
+const description = `Stitch together the specified meta-repo commitish in \
+the specified repo.`;
 
 const parser = new ArgumentParser({
     addHelp: true,
@@ -59,14 +59,9 @@ parser.addArgument(["-c", "--commitish"], {
     required: false,
 });
 
-parser.addArgument(["source"], {
+parser.addArgument(["repo"], {
     type: "string",
-    help: "location of the source repo",
-});
-
-parser.addArgument(["target"], {
-    type: "string",
-    help: "target repo location, default is \".\"",
+    help: "location of the repo, default is \".\"",
     nargs: "?",
     defaultValue: ".",
 });
@@ -86,8 +81,7 @@ const getCommitSubmodules = co.wrap(function *(repo, commit, cache) {
     return shas;
 });
 
-const writeMetaCommit = co.wrap(function *(sourceRepo,
-                                           targetRepo,
+const writeMetaCommit = co.wrap(function *(repo,
                                            commit,
                                            parents,
                                            newParents,
@@ -98,13 +92,11 @@ const writeMetaCommit = co.wrap(function *(sourceRepo,
     if (0 !== parents.length) {
         const firstParent = parents[0];
         parentTree = yield firstParent.getTree();
-        parentSubs = yield getCommitSubmodules(sourceRepo,
+        parentSubs = yield getCommitSubmodules(repo,
                                                firstParent,
                                                commitSubmodules);
     }
-    const subs = yield getCommitSubmodules(sourceRepo,
-                                           commit,
-                                           commitSubmodules);
+    const subs = yield getCommitSubmodules(repo, commit, commitSubmodules);
 
     // The parents we'll write for this commit will be a list containing first,
     // the converted parents of the commit, then the submodule commits it
@@ -121,7 +113,7 @@ const writeMetaCommit = co.wrap(function *(sourceRepo,
             // TODO: we need to do a fetch here or something to get the
             // relevant sub commits into the target repo.  For now, assume
             // they're present.
-            const subCommit = yield targetRepo.getCommit(newSha);
+            const subCommit = yield repo.getCommit(newSha);
             const subTreeId = subCommit.treeId();
             const FILEMODE = NodeGit.TreeEntry.FILEMODE;
             changes[name] = new TreeUtil.Change(subTreeId, FILEMODE.TREE);
@@ -137,8 +129,8 @@ const writeMetaCommit = co.wrap(function *(sourceRepo,
         }
     }
 
-    const newTree = yield TreeUtil.writeTree(targetRepo, parentTree, changes);
-    const newCommitId = yield NodeGit.Commit.create(targetRepo,
+    const newTree = yield TreeUtil.writeTree(repo, parentTree, changes);
+    const newCommitId = yield NodeGit.Commit.create(repo,
                                                     null,
                                                     commit.author(),
                                                     commit.committer(),
@@ -147,17 +139,16 @@ const writeMetaCommit = co.wrap(function *(sourceRepo,
                                                     newTree,
                                                     parentsToWrite.length,
                                                     parentsToWrite);
-    return yield targetRepo.getCommit(newCommitId);
+    return yield repo.getCommit(newCommitId);
 });
 
-const stitch = co.wrap(function *(sourcePath, targetPath, commitish) {
-    const source = yield NodeGit.Repository.open(sourcePath);
-    const target = yield NodeGit.Repository.open(targetPath);
-    const annotated = yield GitUtil.resolveCommitish(source, commitish);
+const stitch = co.wrap(function *(repoPath, commitish) {
+    const repo = yield NodeGit.Repository.open(repoPath);
+    const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
         throw new Error(`Could not resolve ${commitish}.`);
     }
-    const commit = yield source.getCommit(annotated.id());
+    const commit = yield repo.getCommit(annotated.id());
     const todo = [commit];
     const done = {};
     const commitSubmodules = {};
@@ -192,8 +183,7 @@ const stitch = co.wrap(function *(sourcePath, targetPath, commitish) {
         // actually write a commit.
 
         if (parentsDone) {
-            const newCommit = yield writeMetaCommit(source,
-                                                    target,
+            const newCommit = yield writeMetaCommit(repo,
                                                     next,
                                                     parents,
                                                     newParents,
@@ -208,7 +198,7 @@ const stitch = co.wrap(function *(sourcePath, targetPath, commitish) {
 co(function *() {
     try {
         const args = parser.parseArgs();
-        yield stitch(args.source, args.target, args.commitish);
+        yield stitch(args.repo, args.commitish);
     }
     catch (e) {
         console.error(e.stack);
