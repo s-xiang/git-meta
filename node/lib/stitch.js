@@ -142,6 +142,23 @@ const writeMetaCommit = co.wrap(function *(repo,
     return yield repo.getCommit(newCommitId);
 });
 
+function convertedRefName(sha) {
+    return `refs/stitched/${sha}`;
+}
+
+const getConvertedSha = co.wrap(function *(repo, sha) {
+
+    let ref;
+    const refName = convertedRefName(sha);
+    try {
+        ref = yield NodeGit.Reference.lookup(repo, refName);
+    }
+    catch (e) {
+        return null;
+    }
+    return ref.target().tostrS();
+});
+
 const stitch = co.wrap(function *(repoPath, commitish) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
@@ -150,7 +167,6 @@ const stitch = co.wrap(function *(repoPath, commitish) {
     }
     const commit = yield repo.getCommit(annotated.id());
     const todo = [commit];
-    const done = {};
     const commitSubmodules = {};
     while (0 !== todo.length) {
         const next = todo[todo.length - 1];
@@ -159,7 +175,8 @@ const stitch = co.wrap(function *(repoPath, commitish) {
         // it more than once.
 
         const nextSha = next.id().tostrS();
-        if (nextSha in done) {
+        const converted = yield getConvertedSha(repo, nextSha);
+        if (null !== converted) {
             todo.pop();
             continue;                                               // CONTINUE
         }
@@ -169,12 +186,14 @@ const stitch = co.wrap(function *(repoPath, commitish) {
         const newParents = [];
         for (let i = 0; i < parents.length; ++i) {
             const parent = parents[i];
-            const newParent = done[parent.id().tostrS()];
-            if (undefined === newParent) {
+            const newParentSha =
+                             yield getConvertedSha(repo, parent.id().tostrS());
+            if (null === newParentSha) {
                 todo.push(parent);
                 parentsDone = false;
             }
             else {
+                const newParent = yield repo.getCommit(newParentSha);
                 newParents.push(newParent);
             }
         }
@@ -188,7 +207,12 @@ const stitch = co.wrap(function *(repoPath, commitish) {
                                                     parents,
                                                     newParents,
                                                     commitSubmodules);
-            done[nextSha] = newCommit;
+            const convertedRef = convertedRefName(nextSha);
+            yield NodeGit.Reference.create(repo,
+                                           convertedRef,
+                                           newCommit.id().tostrS(),
+                                           1,
+                                           "stitched a ref");
             console.log(nextSha, "->", newCommit.id().tostrS());
             todo.pop();
         }
