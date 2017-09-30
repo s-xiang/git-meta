@@ -206,6 +206,34 @@ exports.parseOpenSubmodules = function (text) {
 };
 
 /**
+ * Return a map from submodule name to url at the specified `tree` in the
+ * specified `repo`.
+ *
+ * @private
+ * @async
+ * @param {NodeGit.Repository} repo
+ * @param {NodeGit.Tree}       tree
+ * @return {Object} map from name to url
+ */
+exports.getSubmodulesFromTree = co.wrap(function *(repo, tree) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.instanceOf(tree, NodeGit.Tree);
+
+    let entry;
+    try {
+        entry = yield tree.entryByPath(exports.modulesFileName);
+    }
+    catch (e) {
+        // No modules file.
+        return {};
+    }
+    const oid = entry.oid();
+    const blob = yield repo.getBlob(oid);
+    const data = blob.toString();
+    return exports.parseSubmoduleConfig(data);
+});
+
+/**
  * Return a map from submodule name to url at the specified `commit` in the
  * specified `repo`.
  *
@@ -220,18 +248,7 @@ exports.getSubmodulesFromCommit = co.wrap(function *(repo, commit) {
     assert.instanceOf(commit, NodeGit.Commit);
 
     const tree = yield commit.getTree();
-    let entry;
-    try {
-        entry = yield tree.entryByPath(exports.modulesFileName);
-    }
-    catch (e) {
-        // No modules file.
-        return {};
-    }
-    const oid = entry.oid();
-    const blob = yield repo.getBlob(oid);
-    const data = blob.toString();
-    return exports.parseSubmoduleConfig(data);
+    return yield exports.getSubmodulesFromTree(repo, tree);
 });
 
 /**
