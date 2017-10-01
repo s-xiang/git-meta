@@ -40,6 +40,7 @@ const co             = require("co");
 const NodeGit        = require("nodegit");
 const FILEMODE       = NodeGit.TreeEntry.FILEMODE;
 
+const Commit              = require("./util/commit");
 const DoWorkQueue         = require("./util/do_work_queue");
 const GitUtil             = require("./util/git_util");
 const SubmoduleConfigUtil = require("./util/submodule_config_util");
@@ -52,6 +53,16 @@ the specified repo.`;
 const parser = new ArgumentParser({
     addHelp: true,
     description: description
+});
+
+parser.addArgument(["-d", "--discard"], {
+    required: false,
+    action: "storeConst",
+    constant: true,
+    defaultValue: false,
+    help: `If provided, discard submodule commits, do not link them as \
+children of the created commits, but instead append their signatures to the \
+commit messages of the created commits.`,
 });
 
 parser.addArgument(["-p", "--pre-fetch"], {
@@ -82,7 +93,6 @@ parser.addArgument(["-r", "--repo"], {
     help: "location of the repo, default is \".\"",
     defaultValue: ".",
 });
-
 
 parser.addArgument(["-e", "--exclude"], {
     type: "string",
@@ -117,13 +127,26 @@ const computeModulesFile = co.wrap(function *(repo, parentTree, changedUrls) {
     return new TreeUtil.Change(id, FILEMODE.BLOB);
 });
 
+function summarizeSubCommit(name, url, subCommit) {
+    const author = subCommit.author();
+    return `\
+Includes changes from submodule ${name}
+on ${subCommit.id().tostrS()} in ${url}.
+Author: ${author.name()} <${author.email()}>
+Date:   ${Commit.formatCommitTime(author.when())}
+
+${subCommit.message()}
+`;
+}
+
 const writeMetaCommit = co.wrap(function *(repo,
                                            commit,
                                            parents,
                                            newParents,
                                            commitSubmodules,
                                            url,
-                                           exclude) {
+                                           exclude,
+                                           detach) {
 
     let parentTree = null;
     let parentSubs = {};
@@ -143,6 +166,8 @@ const writeMetaCommit = co.wrap(function *(repo,
     const parentsToWrite = newParents.slice();
     const changes = {};
     const changedUrls = {};
+
+    let commitMessage = commit.message();
 
     // changes and additions
 
@@ -180,7 +205,14 @@ const writeMetaCommit = co.wrap(function *(repo,
             const subCommit = yield repo.getCommit(newSha);
             const subTreeId = subCommit.treeId();
             changes[name] = new TreeUtil.Change(subTreeId, FILEMODE.TREE);
-            parentsToWrite.push(subCommit);
+
+            if (detach) {
+                commitMessage += "\n";
+                commitMessage += summarizeSubCommit(name, subUrl, subCommit);
+            }
+            else {
+                parentsToWrite.push(subCommit);
+            }
         }
     }
 
@@ -206,7 +238,7 @@ const writeMetaCommit = co.wrap(function *(repo,
                                                     commit.author(),
                                                     commit.committer(),
                                                     commit.messageEncoding(),
-                                                    commit.message(),
+                                                    commitMessage,
                                                     newTree,
                                                     parentsToWrite.length,
                                                     parentsToWrite);
@@ -251,8 +283,12 @@ const preFetch = co.wrap(function *(repo, subs, url, exclude) {
     yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, 100);
 });
 
-const stitch =
-    co.wrap(function *(repoPath, commitish, url, preFetchSubs, exclude) {
+const stitch = co.wrap(function *(repoPath,
+                                  commitish,
+                                  url,
+                                  preFetchSubs,
+                                  exclude,
+                                  detach) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
@@ -307,7 +343,8 @@ const stitch =
                                                     newParents,
                                                     commitSubmodules,
                                                     url,
-                                                    exclude);
+                                                    exclude,
+                                                    detach);
             const convertedRef = convertedRefName(nextSha);
             yield NodeGit.Reference.create(repo,
                                            convertedRef,
@@ -330,7 +367,8 @@ co(function *() {
                      args.commitish,
                      args.url,
                      args.pre_fetch,
-                     exclude);
+                     exclude,
+                     args.discard);
     }
     catch (e) {
         console.error(e.stack);
