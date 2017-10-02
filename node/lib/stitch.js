@@ -171,7 +171,7 @@ const writeMetaCommit = co.wrap(function *(repo,
 
     // changes and additions
 
-    for (let name in subs) {
+    const doSub = co.wrap(function *(name) {
         const newSub = subs[name];
         const newSha = newSub.sha;
         const parentSub = parentSubs[name];
@@ -189,9 +189,6 @@ const writeMetaCommit = co.wrap(function *(repo,
             }
         }
         else if (undefined === parentSub || newSha !== parentSub.sha) {
-            // TODO: we need to do a fetch here or something to get the
-            // relevant sub commits into the target repo.  For now, assume
-            // they're present.
             const subUrl =
                       SubmoduleConfigUtil.resolveSubmoduleUrl(url, newSub.url);
             try {
@@ -200,7 +197,7 @@ const writeMetaCommit = co.wrap(function *(repo,
             catch (e) {
                 console.error("On meta-commit", commit.id().tostrS(),
                               name, "is missing", newSha);
-                continue;                                           // CONTINUE
+                return;                                               // RETURN
             }
             const subCommit = yield repo.getCommit(newSha);
             const subTreeId = subCommit.treeId();
@@ -214,7 +211,9 @@ const writeMetaCommit = co.wrap(function *(repo,
                 parentsToWrite.push(subCommit);
             }
         }
-    }
+    });
+
+    yield DoWorkQueue.doInParallel(Object.keys(subs), doSub, 100);
 
     // deletions
 
