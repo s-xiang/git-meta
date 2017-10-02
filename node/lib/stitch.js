@@ -66,6 +66,13 @@ children of the created commits, but instead append their signatures to the \
 commit messages of the created commits.`,
 });
 
+parser.addArgument(["-j"], {
+    required: false,
+    type: "int",
+    help: "number of parallel fetches, default 8",
+    defaultValue: 8,
+});
+
 parser.addArgument(["-p", "--pre-fetch"], {
     required: false,
     action: "storeConst",
@@ -147,7 +154,8 @@ const writeMetaCommit = co.wrap(function *(repo,
                                            commitSubmodules,
                                            url,
                                            exclude,
-                                           detach) {
+                                           detach,
+                                           numParallel) {
 
     let parentTree = null;
     let parentSubs = {};
@@ -214,7 +222,7 @@ const writeMetaCommit = co.wrap(function *(repo,
         }
     });
 
-    yield DoWorkQueue.doInParallel(Object.keys(subs), doSub, 100);
+    yield DoWorkQueue.doInParallel(Object.keys(subs), doSub, numParallel);
 
     // deletions
 
@@ -264,7 +272,7 @@ const getConvertedSha = co.wrap(function *(repo, sha) {
     return ref.target().tostrS();
 });
 
-const preFetch = co.wrap(function *(repo, subs, url, exclude) {
+const preFetch = co.wrap(function *(repo, subs, url, exclude, numParallel) {
     const fetcher = co.wrap(function *(name) {
 
         // If this submodule is excluded, skip it.
@@ -288,7 +296,7 @@ const preFetch = co.wrap(function *(repo, subs, url, exclude) {
                                        1,
                                        "synthetic ref");
     });
-    yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, 100);
+    yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, numParallel);
 });
 
 const stitch = co.wrap(function *(repoPath,
@@ -296,7 +304,8 @@ const stitch = co.wrap(function *(repoPath,
                                   url,
                                   preFetchSubs,
                                   exclude,
-                                  detach) {
+                                  detach,
+                                  numParallel) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
@@ -307,8 +316,8 @@ const stitch = co.wrap(function *(repoPath,
     const commitSubmodules = {};
     const rootSubs = yield getCommitSubmodules(repo, commit, commitSubmodules);
     if (preFetchSubs) {
-        console.log("Pre-fetching");
-        yield preFetch(repo, rootSubs, url, exclude);
+        console.log("Pre-fetching", numParallel, "at a time.");
+        yield preFetch(repo, rootSubs, url, exclude, numParallel);
         console.log("Finished pre-fetching");
     }
     while (0 !== todo.length) {
@@ -352,7 +361,8 @@ const stitch = co.wrap(function *(repoPath,
                                                     commitSubmodules,
                                                     url,
                                                     exclude,
-                                                    detach);
+                                                    detach,
+                                                    numParallel);
             const convertedRef = convertedRefName(nextSha);
             yield NodeGit.Reference.create(repo,
                                            convertedRef,
@@ -376,7 +386,8 @@ co(function *() {
                      args.url,
                      args.pre_fetch,
                      exclude,
-                     args.discard);
+                     args.discard,
+                     args.j);
     }
     catch (e) {
         console.error(e.stack);
