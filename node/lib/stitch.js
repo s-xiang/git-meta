@@ -45,6 +45,7 @@ const DoWorkQueue         = require("./util/do_work_queue");
 const GitUtil             = require("./util/git_util");
 const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
+const SyntheticBranchUtil = require("./util/synthetic_branch_util");
 const TreeUtil            = require("./util/tree_util");
 
 const description = `Stitch together the specified meta-repo commitish in \
@@ -277,7 +278,15 @@ const preFetch = co.wrap(function *(repo, subs, url, exclude) {
             yield GitUtil.fetchSha(repo, subUrl, sub.sha);
         }
         catch (e) {
+            return;                                                   // RETURN
         }
+        const refName =
+                      SyntheticBranchUtil.getSyntheticBranchForCommit(sub.sha);
+        yield NodeGit.Reference.create(repo,
+                                       refName,
+                                       sub.sha,
+                                       1,
+                                       "synthetic ref");
     });
     yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, 100);
 });
