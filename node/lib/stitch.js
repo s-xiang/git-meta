@@ -272,31 +272,71 @@ const getConvertedSha = co.wrap(function *(repo, sha) {
     return ref.target().tostrS();
 });
 
-const preFetch = co.wrap(function *(repo, subs, url, exclude, numParallel) {
-    const fetcher = co.wrap(function *(name) {
+const prefetchCommits = co.wrap(function *(repo,
+                                           toFetch,
+                                           url,
+                                           commitSubmodules,
+                                           exclude,
+                                           numParallel) {
+    console.log("Listing pre-fetches from;", toFetch.length, "commits.");
+    const seen = new Set();
+    const todo = [];
 
-        // If this submodule is excluded, skip it.
+    // First, make a list of all the url/sha combinations we're fetching
 
-        if (null !== exclude && null !== exclude.exec(name)) {
-            return;                                                   // RETURN
+    for (let i = 0; i < toFetch.length; ++i) {
+        if (1 === i % 10) {
+            console.log(i, "/", toFetch.length);
+            console.log("TODO size:", todo.length);
         }
-        const sub = subs[name];
-        const subUrl = SubmoduleConfigUtil.resolveSubmoduleUrl(url, sub.url);
+        const commit = toFetch[i];
+        const subs = yield getCommitSubmodules(repo, commit, commitSubmodules);
+        for (let subName in subs) {
+            // Skip shas we've seen.
+
+            const sub = subs[subName];
+            if (seen.has(sub.sha)) {
+                continue;                                           // CONTINUE
+            }
+            seen.add(sub.sha);
+
+            // Skip excluded
+
+            if (null !== exclude && null !== exclude.exec(subName)) {
+                continue;                                           // CONTINUE
+            }
+
+            // Add to list otherwise.
+
+            todo.push({
+                url: SubmoduleConfigUtil.resolveSubmoduleUrl(url, sub.url),
+                sha: sub.sha,
+            });
+        }
+    }
+
+    const fetcher = co.wrap(function *(entry) {
+        const url = entry.url;
+        const sha = entry.sha;
+
         try {
-            yield GitUtil.fetchSha(repo, subUrl, sub.sha);
+            yield GitUtil.fetchSha(repo, url, sha);
         }
         catch (e) {
             return;                                                   // RETURN
         }
         const refName =
-                      SyntheticBranchUtil.getSyntheticBranchForCommit(sub.sha);
+                      SyntheticBranchUtil.getSyntheticBranchForCommit(sha);
         yield NodeGit.Reference.create(repo,
                                        refName,
-                                       sub.sha,
+                                       sha,
                                        1,
                                        "synthetic ref");
     });
-    yield DoWorkQueue.doInParallel(Object.keys(subs), fetcher, numParallel);
+
+    console.log("# potential fetches:", todo.length);
+
+    yield DoWorkQueue.doInParallel(todo, fetcher, numParallel);
 });
 
 const stitch = co.wrap(function *(repoPath,
@@ -312,14 +352,19 @@ const stitch = co.wrap(function *(repoPath,
         throw new Error(`Could not resolve ${commitish}.`);
     }
     const commit = yield repo.getCommit(annotated.id());
+
     const todo = [commit];
-    const commitSubmodules = {};
-    const rootSubs = yield getCommitSubmodules(repo, commit, commitSubmodules);
+
+    // As we find commits we will duplicate the todo list here.  We'll
+    // pre-fetch all the possible submodules associated with these commits in
+    // the order we found them to minimize the number of actual fetches needed.
+
+    let toFetch = [];
     if (preFetchSubs) {
-        console.log("Pre-fetching", numParallel, "at a time.");
-        yield preFetch(repo, rootSubs, url, exclude, numParallel);
-        console.log("Finished pre-fetching");
+        toFetch = [commit];
     }
+
+    const commitSubmodules = {};
     while (0 !== todo.length) {
         const next = todo[todo.length - 1];
 
@@ -342,6 +387,9 @@ const stitch = co.wrap(function *(repoPath,
                              yield getConvertedSha(repo, parent.id().tostrS());
             if (null === newParentSha) {
                 todo.push(parent);
+                if (preFetchSubs) {
+                    toFetch.push(parent);
+                }
                 parentsDone = false;
             }
             else {
@@ -354,6 +402,13 @@ const stitch = co.wrap(function *(repoPath,
         // actually write a commit.
 
         if (parentsDone) {
+            yield prefetchCommits(repo,
+                                  toFetch,
+                                  url,
+                                  commitSubmodules,
+                                  exclude,
+                                  numParallel);
+            toFetch = [];
             const newCommit = yield writeMetaCommit(repo,
                                                     next,
                                                     parents,
