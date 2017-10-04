@@ -230,6 +230,12 @@ exports.testMultiRepoManipulator =
     else {
         assert.isFunction(options.expectedTransformer);
     }
+    if (!("actualTransformer" in options)) {
+        options.actualTransformer = (actual) => actual;
+    }
+    else {
+        assert.isFunction(options.actualTransformer);
+    }
     const inputASTs = createMultiRepoASTMap(input);
 
     // Write the repos in their initial states.
@@ -329,6 +335,10 @@ exports.testMultiRepoManipulator =
                                                              commitMap,
                                                              urlMap);
     }
+
+    // Allow mapping of actual ASTs.
+
+    actualASTs = options.actualTransformer(actualASTs, mappings);
 
     RepoASTUtil.assertEqualRepoMaps(actualASTs, expectedASTs);
 });
