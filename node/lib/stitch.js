@@ -50,6 +50,13 @@ const parser = new ArgumentParser({
     description: description
 });
 
+parser.addArgument(["-s", "--skip-fetch"], {
+    required: false,
+    action: "storeConst",
+    constant: true,
+    defaultValue: false,
+    help: `If provided, do no fetches.`,
+});
 parser.addArgument(["-d", "--discard"], {
     required: false,
     action: "storeConst",
@@ -99,7 +106,8 @@ const stitch = co.wrap(function *(repoPath,
                                   url,
                                   exclude,
                                   detach,
-                                  numParallel) {
+                                  numParallel,
+                                  fetch) {
     const repo = yield NodeGit.Repository.open(repoPath);
     const annotated = yield GitUtil.resolveCommitish(repo, commitish);
     if (null === annotated) {
@@ -149,19 +157,23 @@ const stitch = co.wrap(function *(repoPath,
         // actually write a commit.
 
         if (parentsDone) {
-            yield StitchUtil.fetchCommits(repo,
-                                          toFetch,
-                                          url,
-                                          exclude,
-                                          numParallel);
+            if (fetch) {
+                yield StitchUtil.fetchCommits(repo,
+                                              toFetch,
+                                              url,
+                                              exclude,
+                                              numParallel);
+            }
             toFetch = [];
-            const newCommit = yield StitchUtil.writeMetaCommit(repo,
-                                                               next,
-                                                               newParents,
-                                                               exclude,
-                                                               detach);
-            console.log(nextSha, "->", newCommit.id().tostrS());
+            const newCommit = yield StitchUtil.writeStitchedCommit(repo,
+                                                                   next,
+                                                                   newParents,
+                                                                   exclude,
+                                                                   detach);
             todo.pop();
+            const log = `\
+${nextSha} -> ${newCommit.id().tostrS()} [${todo.length}] to go.`;
+            console.log(log);
         }
     }
 });
@@ -180,7 +192,8 @@ co(function *() {
                      args.url,
                      exclude,
                      args.discard,
-                     args.j);
+                     args.j,
+                     !args.skip_fetch);
     }
     catch (e) {
         console.error(e.stack);
