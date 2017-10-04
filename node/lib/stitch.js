@@ -36,6 +36,7 @@
  */
 
 const ArgumentParser = require("argparse").ArgumentParser;
+const assert         = require("chai").assert;
 const co             = require("co");
 const NodeGit        = require("nodegit");
 const FILEMODE       = NodeGit.TreeEntry.FILEMODE;
@@ -43,9 +44,9 @@ const FILEMODE       = NodeGit.TreeEntry.FILEMODE;
 const Commit              = require("./util/commit");
 const DoWorkQueue         = require("./util/do_work_queue");
 const GitUtil             = require("./util/git_util");
+const StitchUtil          = require("./util/stitch_util");
 const SubmoduleConfigUtil = require("./util/submodule_config_util");
 const SubmoduleUtil       = require("./util/submodule_util");
-const SyntheticBranchUtil = require("./util/synthetic_branch_util");
 const TreeUtil            = require("./util/tree_util");
 
 const description = `Stitch together the specified meta-repo commitish in \
@@ -100,192 +101,14 @@ but are instead kept as submodules.`,
     defaultValue: null,
 });
 
-const getSubmoduleChanges = co.wrap(function *(repo, commit, cache) {
-    const sha = commit.id().tostrS();
-    const cached = cache[sha];
-    if (undefined !== cached) {
-        return cached;
-    }
-    const subs = yield SubmoduleUtil.getSubmoduleChanges(repo, commit);
-    cache[sha] = subs;
-    return subs;
-});
-
-function summarizeSubCommit(name, url, subCommit) {
-    const author = subCommit.author();
-    return `\
-Includes changes from submodule ${name}
-on ${subCommit.id().tostrS()} in ${url}.
-Author: ${author.name()} <${author.email()}>
-Date:   ${Commit.formatCommitTime(author.when())}
-
-${subCommit.message()}
-`;
-}
-
-const computeModulesFile = co.wrap(function *(repo, newUrls, exclude) {
-    const excludedUrls = {};
-    for (let name in newUrls) {
-        if (exclude(name)) {
-            excludedUrls[name] = newUrls[name];
-        }
-    }
-    const modulesText = SubmoduleConfigUtil.writeConfigText(excludedUrls);
-    const db = yield repo.odb();
-    const BLOB = 3;
-    const id = yield db.write(modulesText, modulesText.length, BLOB);
-    return new TreeUtil.Change(id, FILEMODE.BLOB);
-});
-
-
-const writeMetaCommit = co.wrap(function *(repo,
-                                           commit,
-                                           parents,
-                                           cachedChanges,
-                                           url,
-                                           exclude,
-                                           detach) {
-
-    let parentTree = null;
-    if (0 !== parents.length) {
-        const firstParent = parents[0];
-        parentTree = yield firstParent.getTree();
-    }
-
-    // The parents we'll write for this commit will be a list containing first,
-    // the converted parents of the commit, then the submodule commits it
-    // introduced.
-
-    const parentsToWrite = parents.slice();
-    let commitMessage = commit.message();
-
-    const subChanges = yield getSubmoduleChanges(repo, commit, cachedChanges);
-    const newUrls = subChanges.urls;
-    // changes and additions
-
-    let updateModules = false;  // if any excluded subs added or removed
-    const changes = {};
-
-    const stitchSub = co.wrap(function *(name, sha) {
-        const subUrl =
-                   SubmoduleConfigUtil.resolveSubmoduleUrl(url, newUrls[name]);
-        let subCommit;
-        try {
-            subCommit = yield repo.getCommit(sha);
-        }
-        catch (e) {
-            console.error("On meta-commit", commit.id().tostrS(),
-                          name, "is missing", sha);
-            return;                                                   // RETURN
-        }
-        const subTreeId = subCommit.treeId();
-        changes[name] = new TreeUtil.Change(subTreeId, FILEMODE.TREE);
-
-        if (detach) {
-            commitMessage += "\n";
-            commitMessage += summarizeSubCommit(name, subUrl, subCommit);
-        }
-        else {
-            parentsToWrite.push(subCommit);
-        }
-    });
-
-    function changeExcluded(name, newSha) {
-        const id = NodeGit.Oid.fromString(newSha);
-        changes[name] = new TreeUtil.Change(id, FILEMODE.COMMIT);
-    }
-
-    // added
-
-    const added = subChanges.added;
-    for (let name in added) {
-        const newSha = added[name];
-        if (exclude(name)) {
-            updateModules = true;
-            changeExcluded(name, newSha);
-        }
-        else {
-            yield stitchSub(name, newSha);
-        }
-    }
-
-    // changed
-
-    const changed = subChanges.changed;
-    for (let name in changed) {
-        const newSha = changed[name]["new"];
-        if (exclude(name)) {
-            changeExcluded(name, newSha);
-        }
-        else {
-            yield stitchSub(name, newSha);
-        }
-    }
-
-    // removed
-
-    const removed = subChanges.removed;
-    for (let name in removed) {
-        changes[name] = null;
-        if (exclude(name)) {
-            updateModules = true;
-        }
-    }
-
-    // If any excluded submodules were added or removed, rewrite the modules
-    // file.
-
-    if (updateModules) {
-        changes[SubmoduleConfigUtil.modulesFileName] =
-                              yield computeModulesFile(repo, newUrls, exclude);
-    }
-
-    const newTree = yield TreeUtil.writeTree(repo, parentTree, changes);
-    const newCommitId = yield NodeGit.Commit.create(repo,
-                                                    null,
-                                                    commit.author(),
-                                                    commit.committer(),
-                                                    commit.messageEncoding(),
-                                                    commitMessage,
-                                                    newTree,
-                                                    parentsToWrite.length,
-                                                    parentsToWrite);
-    return yield repo.getCommit(newCommitId);
-});
-
-function convertedRefName(sha) {
-    const pre = sha.slice(0, 2);
-    const post = sha.slice(2);
-    return `refs/stitched/converted/${pre}/${post}`;
-}
-
-function fetchedRefName(sha) {
-    const pre = sha.slice(0, 2);
-    const post = sha.slice(2);
-    return `refs/stitched/fetched/${pre}/${post}`;
-}
-
-const getConvertedSha = co.wrap(function *(repo, sha) {
-
-    let ref;
-    const refName = convertedRefName(sha);
-    try {
-        ref = yield NodeGit.Reference.lookup(repo, refName);
-    }
-    catch (e) {
-        return null;
-    }
-    return ref.target().tostrS();
-});
-
 const fetchCommits = co.wrap(function *(repo,
                                         toFetch,
                                         url,
-                                        cachedChanges,
                                         exclude,
                                         numParallel) {
     console.log("Listing pre-fetches from:", toFetch.length, "commits.");
 
+    const todo = [];
     let urls = {};
 
     if (0 !== toFetch.length) {
@@ -311,10 +134,48 @@ const fetchCommits = co.wrap(function *(repo,
         return url;
     });
 
-    const fetch = co.wrap(function *(subUrl, sha) {
-        const fetchUrl = SubmoduleConfigUtil.resolveSubmoduleUrl(url, subUrl);
+    const listCommitFetches = co.wrap(function *(commit, i) {
+        if (1 === i % 10) {
+            console.log(i, "/", toFetch.length);
+            console.log("TODO size:", todo.length);
+        }
+        const changes = yield SubmoduleUtil.getSubmoduleChanges(repo, commit);
+
+        // look for added submodules
+
+        const added = changes.added;
+        for (let name in added) {
+            if (!exclude(name)) {
+                const subUrl = yield getUrl(commit, name);
+                todo.push({
+                    url: subUrl,
+                    sha: added[name],
+                });
+            }
+        }
+
+        // or changed submodules
+
+        const changed = changes.changed;
+        for (let name in changed) {
+            if (!exclude(name)) {
+                const subUrl = yield getUrl(commit, name);
+                todo.push({
+                    url: subUrl,
+                    sha: changed[name]["new"],
+                });
+            }
+        }
+    });
+
+    yield DoWorkQueue.doInParallel(toFetch, listCommitFetches, numParallel);
+
+    const fetcher = co.wrap(function *(entry) {
+        const url = entry.url;
+        const sha = entry.sha;
+
         try {
-            yield GitUtil.fetchSha(repo, fetchUrl, sha);
+            yield GitUtil.fetchSha(repo, url, sha);
         }
         catch (e) {
             return;                                                   // RETURN
@@ -328,51 +189,11 @@ const fetchCommits = co.wrap(function *(repo,
                                        "synthetic ref");
     });
 
-    // First, make a list of all the url/sha combinations we're fetching
+    if (0 !== todo.length) {
+        console.log("# potential fetches:", todo.length);
+    }
 
-    const fetchCommit = co.wrap(function *(commit, i) {
-        if (1 === i % 10) {
-            console.log(i, "/", toFetch.length);
-        }
-        const refName = fetchedRefName(commit.id().tostrS());
-
-        // If we've ever fetched this commit, we don't need to do it again.
-
-        try {
-            yield NodeGit.Reference.lookup(repo, refName);
-            return;
-        }
-        catch (e) {
-        }
-        const changes = yield getSubmoduleChanges(repo, commit, cachedChanges);
-
-        // look for added submodules
-
-        const added = changes.added;
-        for (let name in added) {
-            if (!exclude(name)) {
-                const subUrl = yield getUrl(commit, name);
-                yield fetch(subUrl, added[name]);
-            }
-        }
-
-        // or changed submodules
-
-        const changed = changes.changed;
-        for (let name in changed) {
-            if (!exclude(name)) {
-                const subUrl = yield getUrl(commit, name);
-                yield fetch(subUrl, changed[name]["new"]);
-            }
-        }
-        yield NodeGit.Reference.create(repo,
-                                       refName,
-                                       commit.id(),
-                                       1,
-                                       "fetched ref");
-    });
-
-    yield DoWorkQueue.doInParallel(toFetch, fetchCommit, numParallel);
+    yield DoWorkQueue.doInParallel(todo, fetcher, numParallel);
 });
 
 const stitch = co.wrap(function *(repoPath,
@@ -445,12 +266,6 @@ const stitch = co.wrap(function *(repoPath,
                                                     url,
                                                     exclude,
                                                     detach);
-            const convertedRef = convertedRefName(nextSha);
-            yield NodeGit.Reference.create(repo,
-                                           convertedRef,
-                                           newCommit.id().tostrS(),
-                                           1,
-                                           "stitched a ref");
             console.log(nextSha, "->", newCommit.id().tostrS());
             todo.pop();
         }
