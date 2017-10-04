@@ -60,8 +60,14 @@ exports.buildDirectoryTree = function (flatTree) {
 
         for (let i = 0; i + 1 < paths.length; ++i) {
             const nextPath = paths[i];
-            if (nextPath in tree) {
-                tree = tree[nextPath];
+            const nextElement = tree[nextPath];
+
+            // If The element exists or is a deletion, we can overwite it.
+            // This can happen when a file is deleted that will turn into a
+            // subdirectory.
+
+            if (undefined !== nextElement && null !== nextElement) {
+                tree = nextElement;
                 assert.isObject(tree, `for path ${path}`);
             }
             else {
@@ -70,10 +76,20 @@ exports.buildDirectoryTree = function (flatTree) {
                 tree = nextTree;
             }
         }
-        const leafPath = paths[paths.length - 1];
-        assert.notProperty(tree, leafPath, `duplicate entry for ${path}`);
         const data = flatTree[path];
-        tree[leafPath] = data;
+        const leafPath = paths[paths.length - 1];
+        const existing = tree[leafPath];
+
+        // If there is an existing element in `leafPath` in the tree and this
+        // element is null, then it means something was deleted that is turning
+        // into a directory.  If this item is not null, we have a bug.
+
+        if (undefined !== existing) {
+            assert(null === data, `duplicate entry for ${path}`);
+        }
+        else {
+            tree[leafPath] = data;
+        }
     }
 
    return result;
@@ -147,6 +163,12 @@ exports.writeTree = co.wrap(function *(repo, baseTree, changes) {
     // directory structure.
 
     const writeSubtree = co.wrap(function *(parentTree, subDir) {
+        // Put entries here to prevent collection; otherwise, they could be
+        // free'd before they are used; see:
+        // https://github.com/twosigma/git-meta/issues/373.
+
+        const entries = [];
+                        
         const builder = yield NodeGit.Treebuilder.create(repo, parentTree);
         for (let filename in subDir) {
             const entry = subDir[filename];
@@ -157,7 +179,8 @@ exports.writeTree = co.wrap(function *(repo, baseTree, changes) {
                 builder.remove(filename);
             }
             else if (entry instanceof Change) {
-                yield builder.insert(filename, entry.id, entry.mode);
+                const e = yield builder.insert(filename, entry.id, entry.mode);
+                entries.push(e);
             }
             else {
                 let subtree;
@@ -170,22 +193,24 @@ exports.writeTree = co.wrap(function *(repo, baseTree, changes) {
                         // 'filename' didn't exist in 'parentTree'
                     }
                 }
-                if (null !== treeEntry) {
-                    assert(treeEntry.isTree(), `${filename} should be a tree`);
+                let subtreeParent = null;
+
+                // If an tree exists at this spot, use it as a parent.
+                // Otherwise, make a new one.
+
+                if (null !== treeEntry && treeEntry.isTree()) {
                     const treeId = treeEntry.id();
-                    const curTree = yield repo.getTree(treeId);
-                    subtree = yield writeSubtree(curTree, entry);
+                    subtreeParent = yield repo.getTree(treeId);
                 }
-                else {
-                    subtree = yield writeSubtree(null, entry);
-                }
+                subtree = yield writeSubtree(subtreeParent, entry);
                 if (0 === subtree.entryCount()) {
                     builder.remove(filename);
                 }
                 else {
-                    yield builder.insert(filename,
-                                         subtree.id(),
-                                         NodeGit.TreeEntry.FILEMODE.TREE);
+                    const e = yield builder.insert(filename,
+                                              subtree.id(),
+                                              NodeGit.TreeEntry.FILEMODE.TREE);
+                    entries.push(e);
                 }
             }
         }
