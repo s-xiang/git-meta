@@ -59,6 +59,7 @@ function deSplitSha(sha) {
  */
 function refMapper(actual, mapping) {
     const convertedRe = /(stitched\/converted\/)(.*)/;
+    const fetchedSubRe = /(stitched\/fetched\/)(.*)(\/sub\/)(.*)/;
     const commitMap = mapping.commitMap;
     let result = {};
     Object.keys(actual).forEach(repoName => {
@@ -74,10 +75,20 @@ function refMapper(actual, mapping) {
                 const newRefName = refName.replace(convertedRe,
                                                    `$1${logical}`);
                 newRefs[newRefName] = ref;
+                return;                                               // RETURN
             }
-            else {
-                newRefs[refName] = ref;
+            const fetchedSubMatch = fetchedSubRe.exec(refName);
+            if (null !== fetchedSubMatch) {
+                const metaPhys = deSplitSha(fetchedSubMatch[2]);
+                const metaLog = commitMap[metaPhys];
+                const subPhys = deSplitSha(fetchedSubMatch[4]);
+                const subLog = commitMap[subPhys];
+                const newRefName = refName.replace(fetchedSubRe,
+                                                   `$1${metaLog}$3${subLog}`);
+                newRefs[newRefName] = ref;
+                return;                                               // RETURN
             }
+            newRefs[refName] = ref;
         });
         result[repoName] = ast.copy({
             refs: newRefs,
@@ -148,7 +159,32 @@ describe("StitchUtil", function () {
                 },
                 commitMap: {
                     "ffff": "1",
-                    "fffd": "2",
+                },
+            },
+            "fetched sub": {
+                input: {
+                    x: new RepoAST({
+                        commits: {
+                            "fffd": new Commit(),
+                        },
+                        refs: {
+                            "stitched/fetched/ff/ff/sub/aa/bb": "fffd",
+                        },
+                    }),
+                },
+                expected: {
+                    x: new RepoAST({
+                        commits: {
+                            "fffd": new Commit(),
+                        },
+                        refs: {
+                            "stitched/fetched/1/sub/2": "fffd",
+                        },
+                    }),
+                },
+                commitMap: {
+                    "ffff": "1",
+                    "aabb": "2",
                 },
             },
         };
@@ -169,10 +205,6 @@ describe("StitchUtil", function () {
     it("convertedRefName", function () {
         assert.equal("refs/stitched/converted/56/78",
                      StitchUtil.convertedRefName("5678"));
-    });
-    it("fetchedRefName", function () {
-        assert.equal("refs/stitched/fetched/89/1011/meta",
-                     StitchUtil.fetchedRefName("891011"));
     });
     it("fetchedSubRefName", function () {
         assert.equal("refs/stitched/fetched/43/556/sub/aa/ffb",
@@ -233,11 +265,6 @@ the first commit
             const revMap = maps.reverseCommitMap;
             const metaSha = revMap["1"];
             const subSha = revMap["2"];
-            yield NodeGit.Reference.create(x,
-                                           StitchUtil.fetchedRefName(metaSha),
-                                           metaSha,
-                                           1,
-                                           "foo");
             const subRef = StitchUtil.fetchedSubRefName(metaSha, subSha);
             yield NodeGit.Reference.create(x, subRef, metaSha, 1, "foo");
             StitchUtil.cleanupFetchRefs(x, metaSha, [subSha]);
@@ -442,4 +469,79 @@ x=E:C*#s-1 s/a=a;Fstitched/converted/2=s`,
         const actual = stitch.message();
         assert.deepEqual(expected.split("\n"), actual.split("\n"));
     }));
+    describe("fetchCommits", function () {
+        const cases = {
+            "trivial": {
+                input: "a=B|x=S",
+                toFetch: [],
+                url: "a",
+                exclude: () => false,
+                numParallel: 1,
+            },
+            "one, w/o subs": {
+                input: "a=B|x=S",
+                toFetch: ["1"],
+                url: "a",
+                exclude: () => false,
+                numParallel: 1,
+            },
+            "one, w/ added sub": {
+                input: "a=B|x=U",
+                toFetch: ["2"],
+                url: "a",
+                exclude: () => false,
+                numParallel: 1,
+                expected: "x=E:Fstitched/fetched/2/sub/1=1",
+            },
+            "one, w/ changed sub": {
+                input: "a=B:Cy;By=y|x=U:C3-2 s=Sa:y;Bmaster=3",
+                toFetch: ["3"],
+                url: "a",
+                exclude: () => false,
+                numParallel: 1,
+                expected: "x=E:Fstitched/fetched/3/sub/y=y",
+            },
+            "one, added excluded": {
+                input: "a=B|x=U",
+                toFetch: ["2"],
+                url: "a",
+                exclude: (name) => "s" === name,
+                numParallel: 1,
+            },
+            "one, w/ changed excluded": {
+                input: "a=B:Cy;By=y|x=U:C3-2 s=Sa:y;Bmaster=3",
+                toFetch: ["3"],
+                url: "a",
+                exclude: (name) => "s" === name,
+                numParallel: 1,
+            },
+        };
+        Object.keys(cases).forEach(caseName => {
+            const c = cases[caseName];
+            it(caseName, co.wrap(function *() {
+                const fetcher = co.wrap(function *(repos, maps) {
+                    const x = repos.x;
+                    const a = repos.a;
+                    const revMap = maps.reverseCommitMap;
+                    const toFetch =
+                                  yield c.toFetch.map(co.wrap(function *(sha) {
+                        return yield x.getCommit(revMap[sha]);
+                    }));
+                    const url = maps.reverseUrlMap[c.url];
+                    yield StitchUtil.fetchCommits(x,
+                                                  toFetch,
+                                                  url,
+                                                  c.exclude,
+                                                  c.numParallel);
+                });
+                yield RepoASTTestUtil.testMultiRepoManipulator(c.input,
+                                                               c.expected,
+                                                               fetcher,
+                                                               c.fails, {
+                    actualTransformer: refMapper,
+                });
+
+            }));
+        });
+    });
 });

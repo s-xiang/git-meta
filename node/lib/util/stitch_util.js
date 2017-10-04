@@ -35,6 +35,8 @@ const co      = require("co");
 const NodeGit = require("nodegit");
 
 const Commit              = require("./commit");
+const DoWorkQueue         = require("./do_work_queue");
+const GitUtil             = require("./git_util");
 const SubmoduleConfigUtil = require("./submodule_config_util");
 const SubmoduleUtil       = require("./submodule_util");
 const TreeUtil            = require("./tree_util");
@@ -67,22 +69,6 @@ exports.convertedRefName = function (sha) {
 };
 
 /**
- * The name of the root for refs related to fetch status.
- */
-const fetchedRoot = "refs/stitched/fetched/";
-
-/**
- * Return the name of the ref indicating that the meta-commit having the
- * specified `sha` has been fetched.
- *
- * @param {String} sha
- * @return {String}
- */
-exports.fetchedRefName = function (sha) {
-    return fetchedRoot + exports.splitSha(sha) + "/meta";
-};
-
-/**
  * Return the name of the ref indicating that the submodule commit having the
  * specified `subSha` has been fetched for the specified `metaSha`; this ref
  * also serves to root that submodule commit.
@@ -92,7 +78,7 @@ exports.fetchedRefName = function (sha) {
  * @return {String}
  */
 exports.fetchedSubRefName = function (metaSha, subSha) {
-    return fetchedRoot + exports.splitSha(metaSha) + "/sub/" +
+    return "refs/stitched/fetched/" + exports.splitSha(metaSha) + "/sub/" +
         exports.splitSha(subSha);
 };
 
@@ -170,10 +156,7 @@ exports.getConvertedSha = co.wrap(function *(repo, sha) {
 
 /**
  * In the specified `repo`, cleanup the specified meta-refs corresponding to
- * the specified 'subCommits' of the specified `metaCommit`, and the meta-ref
- * indicating that `metaCommit` has been fetched.  At this point, Git will be
- * able to collect the submodule commits that were fetched, so we can no longer
- * indicate that `metaCommit` has been fetched.
+ * the specified 'subCommits' of the specified `metaCommit`.
  *
  * @param {NodeGit.Repository} repo
  * @param {String}             metaCommit
@@ -183,12 +166,6 @@ exports.cleanupFetchRefs = function (repo, metaCommit, subCommits) {
     assert.instanceOf(repo, NodeGit.Repository);
     assert.isString(metaCommit);
     assert.isArray(subCommits);
-
-    // Clean up the meta-commit ref first; after any of the submodule refs are
-    // gone they are unpinned and we can no longer consider the commit to be
-    // "fetched".
-
-    NodeGit.Reference.remove(repo, exports.fetchedRefName(metaCommit));
 
     subCommits.forEach(sha => {
         const refName = exports.fetchedSubRefName(metaCommit, sha);
@@ -208,7 +185,7 @@ exports.cleanupFetchRefs = function (repo, metaCommit, subCommits) {
  *
  * Once the commit has been written, record a reference indicating the mapping
  * from the originally to new commit in the form of
- * `refs/stitched/converted/${fetchedRefName}`, and clean the refs created in
+ * `refs/stitched/converted/${sha}`, and clean the refs created in
  * `refs/stitched/fetched` for this commit.
  *
  * @param {NodeGit.Repository}  repo
@@ -346,3 +323,121 @@ exports.writeStitchedCommit = co.wrap(function *(repo,
     exports.cleanupFetchRefs(repo, commit.id().tostrS(), synthetics);
     return yield repo.getCommit(newCommitId);
 });
+
+/**
+ * In the specified `repo`, fetch all submodule SHAs introduced by the
+ * specified `toFetch` commits, except for submodules matched by the specified
+ * `exclude` function.  Use the specified meta-repo `url` to resolve relative
+ * submodule URLs.  Perform at most the specified `numParallel` operations in
+ * parallel.  For each submodule commit fetched, record a reference with a name
+ * as described by `fetchedSubRefName` to keep it from being collected.
+ *
+ * @param {NodeGit.Repository}  repo
+ * @param {[NodeGit.Commit]}    toFetch
+ * @param {String}              url
+ * @param {(String) => Boolean} exclude
+ * @param {Number}              numParallel
+ */
+exports.fetchCommits = co.wrap(function *(repo,
+                                          toFetch,
+                                          url,
+                                          exclude,
+                                          numParallel) {
+    assert.instanceOf(repo, NodeGit.Repository);
+    assert.isArray(toFetch);
+    assert.isString(url);
+    assert.isFunction(exclude);
+    assert.isNumber(numParallel);
+    assert(0 < numParallel);
+
+    const todo = [];
+    let urls = {};
+
+    if (0 !== toFetch.length) {
+        urls =
+           yield SubmoduleConfigUtil.getSubmodulesFromCommit(repo, toFetch[0]);
+    }
+
+    // So that we don't have to continuously re-read the `.gitmodules` file, we
+    // will assume that submodule URLs never change.
+
+    const getUrl = co.wrap(function *(commit, sub) {
+        let subUrl = urls[sub];
+
+        // If we don't have the url for this submodule, load them.
+
+        if (undefined === subUrl) {
+            console.log("loading urls");
+            const newUrls =
+               yield SubmoduleConfigUtil.getSubmodulesFromCommit(repo, commit);
+            urls = Object.assign(urls, newUrls);
+            subUrl = urls[sub];
+        }
+        return url;
+    });
+
+    // List all the fetches we want to do first.  If we parallelize only on
+    // each commit, we may not get much parallelism.
+
+    const listCommitFetches = co.wrap(function *(commit, i) {
+        if (0 === i % 10) {
+            console.log(i, "/", toFetch.length);
+            console.log("TODO size:", todo.length);
+        }
+        const changes = yield SubmoduleUtil.getSubmoduleChanges(repo, commit);
+
+        // look for added submodules
+
+        const metaSha = commit.id().tostrS();
+
+        const added = changes.added;
+        for (let name in added) {
+            if (!exclude(name)) {
+                const subUrl = yield getUrl(commit, name);
+                todo.push({
+                    metaSha: metaSha,
+                    url: subUrl,
+                    sha: added[name],
+                });
+            }
+        }
+
+        // or changed submodules
+
+        const changed = changes.changed;
+        for (let name in changed) {
+            if (!exclude(name)) {
+                const subUrl = yield getUrl(commit, name);
+                todo.push({
+                    metaSha: metaSha,
+                    url: subUrl,
+                    sha: changed[name]["new"],
+                });
+            }
+        }
+    });
+
+    yield DoWorkQueue.doInParallel(toFetch, listCommitFetches, numParallel);
+
+    const fetcher = co.wrap(function *(entry) {
+        const url = entry.url;
+        const sha = entry.sha;
+
+        try {
+            yield GitUtil.fetchSha(repo, url, sha);
+        }
+        catch (e) {
+            return;                                                   // RETURN
+        }
+        const refName = exports.fetchedSubRefName(entry.metaSha, sha);
+        yield NodeGit.Reference.create(repo, refName, sha, 1, "fetched ref");
+    });
+
+    if (0 !== todo.length) {
+        console.log("# potential fetches:", todo.length);
+    }
+
+    yield DoWorkQueue.doInParallel(todo, fetcher, numParallel);
+});
+
+
