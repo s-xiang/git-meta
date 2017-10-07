@@ -43,6 +43,7 @@ const path    = require("path");
 
 const GitUtil             = require("./git_util");
 const Submodule           = require("./submodule");
+const SubmoduleChange     = require("./submodule_change");
 const SubmoduleFetcher    = require("./submodule_fetcher");
 const SubmoduleConfigUtil = require("./submodule_config_util");
 
@@ -305,6 +306,63 @@ exports.getSubmoduleRepos = co.wrap(function *(repo) {
 });
 
 /**
+ * Return a summary of the submodule SHA changes in the specified `diff`.
+ * TODO: Test this separately from `getSubmoduleChanges`.
+ *
+ * @asycn
+ * @param {NodeGit.Diff} diff
+ * @return {Object} map from name to `SubmoduleChange`
+ */
+exports.getSubmoduleChangesFromDiff = function (diff) {
+    assert.instanceOf(diff, NodeGit.Diff);
+
+    const num = diff.numDeltas();
+    const result = {};
+    const DELTA = NodeGit.Diff.DELTA;
+    const COMMIT = NodeGit.TreeEntry.FILEMODE.COMMIT;
+    for (let i = 0; i < num; ++i) {
+        const delta = diff.getDelta(i);
+        switch (delta.status()) {
+            case DELTA.COPIED:
+            case DELTA.RENAMED: {
+                if (COMMIT === delta.newFile.mode() ||
+                    COMMIT === delta.oldFile.mode()) {
+                    throw new Error(
+                           "Not sure if these are possible.  TODO: find out.");
+                }
+            } break;
+            case DELTA.MODIFIED:
+            case DELTA.CONFLICTED: {
+                const newFile = delta.newFile();
+                const path = newFile.path();
+                if (COMMIT === newFile.mode()) {
+                    result[path] = new SubmoduleChange(
+                                                 delta.oldFile().id().tostrS(),
+                                                 newFile.id().tostrS());
+                }
+            } break;
+            case DELTA.ADDED: {
+                const newFile = delta.newFile();
+                const path = newFile.path();
+                if (COMMIT === newFile.mode()) {
+                    result[path] = new SubmoduleChange(null,
+                                                       newFile.id().tostrS());
+                }
+            } break;
+            case DELTA.DELETED: {
+                const oldFile = delta.oldFile();
+                const path = oldFile.path();
+                if (COMMIT === oldFile.mode()) {
+                    result[path] = new SubmoduleChange(oldFile.id().tostrS(),
+                                                       null);
+                }
+            } break;
+        }
+    }
+    return result;
+};
+
+/**
  * Return a summary of the submodule SHAs changed by the specified `commitId` in
  * the specified `repo`, and flag denoting whether or not the `.gitmodules`
  * file was changed.
@@ -333,63 +391,7 @@ exports.getSubmoduleChanges = co.wrap(function *(repo, commit) {
 
     const tree = yield commit.getTree();
     const diff = yield NodeGit.Diff.treeToTree(repo, parentTree, tree, null);
-    const num = diff.numDeltas();
-    const result = {
-        added: {},
-        changed: {},
-        removed: {},
-        modulesFileChanged: false,
-    };
-    const DELTA = NodeGit.Diff.DELTA;
-    const COMMIT = NodeGit.TreeEntry.FILEMODE.COMMIT;
-    for (let i = 0; i < num; ++i) {
-        const delta = diff.getDelta(i);
-        switch (delta.status()) {
-            case DELTA.COPIED:
-            case DELTA.RENAMED: {
-                if (COMMIT === delta.newFile.mode() ||
-                    COMMIT === delta.oldFile.mode()) {
-                    throw new Error(
-                           "Not sure if these are possible.  TODO: find out.");
-                }
-            } break;
-            case DELTA.MODIFIED:
-            case DELTA.CONFLICTED: {
-                const newFile = delta.newFile();
-                const path = newFile.path();
-                if (COMMIT === newFile.mode()) {
-                    result.changed[path] = {
-                        "new": newFile.id().tostrS(),
-                        "old": delta.oldFile().id().tostrS(),
-                    };
-                }
-                else if (SubmoduleConfigUtil.modulesFileName === path) {
-                    result.modulesFileChanged = true;
-                }
-            } break;
-            case DELTA.ADDED: {
-                const newFile = delta.newFile();
-                const path = newFile.path();
-                if (COMMIT === newFile.mode()) {
-                    result.added[newFile.path()] = newFile.id().tostrS();
-                }
-                else if (SubmoduleConfigUtil.modulesFileName === path) {
-                    result.modulesFileChanged = true;
-                }
-            } break;
-            case DELTA.DELETED: {
-                const oldFile = delta.oldFile();
-                const path = oldFile.path();
-                if (COMMIT === oldFile.mode()) {
-                    result.removed[oldFile.path()] = oldFile.id().tostrS();
-                }
-                else if (SubmoduleConfigUtil.modulesFileName === path) {
-                    result.modulesFileChanged = true;
-                }
-            } break;
-        }
-    }
-    return result;
+    return yield exports.getSubmoduleChangesFromDiff(diff);
 });
 
 /**
